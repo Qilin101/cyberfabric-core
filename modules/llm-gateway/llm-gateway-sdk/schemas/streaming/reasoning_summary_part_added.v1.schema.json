@@ -24,7 +24,13 @@
           "description": "The index of the summary part that was added."
         },
         "part": {
-          "$ref": "gts://gts.x.llmgw.content.output_content_part.v1~",
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "const": "summary_text" },
+            "text": { "type": "string" }
+          },
+          "required": ["type", "text"],
+          "additionalProperties": false,
           "description": "The summary content part that was added."
         }
       },

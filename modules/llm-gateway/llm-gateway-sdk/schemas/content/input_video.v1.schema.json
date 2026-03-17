@@ -21,5 +21,9 @@
     }
   },
   "required": ["type"],
+  "anyOf": [
+    { "required": ["url"] },
+    { "required": ["file_id"] }
+  ],
   "additionalProperties": false
 }

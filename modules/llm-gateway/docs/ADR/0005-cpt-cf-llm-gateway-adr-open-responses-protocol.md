@@ -11,7 +11,7 @@ date: 2026-03-12
 
 LLM Gateway provides unified access to multiple LLM providers through a single API. As the AI ecosystem evolves, providers are diverging beyond simple chat completions — introducing reasoning tokens, internal tool calls, citations, and richer structured outputs. The Gateway needs to define its external API protocol for LLM completion requests in a way that balances broad client compatibility with the ability to expose these advanced provider-specific features without breaking the base contract.
 
-The legacy OpenAI Chat Completions API (`/v1/chat/completions`) has become a de facto standard, but its output format is limited and cannot represent newer model capabilities. Providers are gradually moving away from this api, with majority offering an analog of OpenAI Responses API for newer models. We need a protocol that serves as the Gateway's canonical request/response format while remaining extensible and avoiding vendor lock-in.
+The legacy OpenAI Chat Completions API (`/v1/chat/completions`) has become a de facto standard, but its output format is limited and cannot represent newer model capabilities. Providers are gradually moving away from this API, with the majority offering an analog of OpenAI Responses API for newer models. We need a protocol that serves as the Gateway's canonical request/response format while remaining extensible and avoiding vendor lock-in.
 
 ## Decision Drivers
 
@@ -96,7 +96,7 @@ An open specification based on OpenAI's Responses API design, governed as an ope
 * Good, because OpenAI-compatible — existing clients using OpenAI SDKs can connect with minimal changes
 * Good, because extensible by design — provider-specific items can be added without breaking the base contract
 * Good, because open specification — not controlled by a single vendor, community-governed evolution
-* Good, because embraced by xAI and other providers, indicating growing industry adoption
+* Good, because embraced by xAI and other providers, indicating growing industry adoption (see [Open Responses specification](https://www.openresponses.org/) and [xAI Grok API compatibility](https://docs.x.ai/docs/api-reference))
 * Good, because compliance tooling support — item-level granularity facilitates content filtering, audit, and governance
 * Good, because items-based response model naturally represents reasoning tokens, internal tool calls, citations, and other rich outputs
 * Bad, because relatively new specification — less production mileage than the Chat Completions API

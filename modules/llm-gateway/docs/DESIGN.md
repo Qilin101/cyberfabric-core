@@ -317,7 +317,7 @@ graph TB
 ```json
 {
   "model": "string",
-  "input": "string | InputItem[]",
+  "input": "string | Item[]",
   "instructions": "string | null",
   "tools": [{"type": "function", "name": "...", "parameters": {}}],
   "tool_choice": "auto | required | none | {type, name}",
@@ -425,7 +425,7 @@ Event types:
 
 Format:
 
-```
+```text
 event: response.created
 data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_abc","status":"in_progress","model":"gpt-4","output":[]}}
 
@@ -802,7 +802,7 @@ sequenceDiagram
     OB-->>GW: job started
     GW-->>C: ResponseResource (status: in_progress, id: resp_abc)
 
-    C->>GW: GET /responses/resp_abc
+    C->>GW: GET /jobs/{id}
     GW->>OB: Check status
     OB->>P: Poll
     P-->>OB: result

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "gts://gts.x.llmgw.streaming.event.v1~x.llmgw.streaming.response_failed.v1~",
   "title": "Response failed event",
-  "description": "A streaming event indicating the response had failed.",
+  "description": "A streaming event indicating the response has failed.",
   "allOf": [
     { "$ref": "gts://gts.x.llmgw.streaming.event.v1~" },
     {

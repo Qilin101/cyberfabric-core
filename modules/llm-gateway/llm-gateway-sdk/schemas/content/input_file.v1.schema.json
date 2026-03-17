@@ -8,7 +8,6 @@
     "type": {
       "type": "string",
       "const": "input_file",
-      "default": "input_file",
       "description": "Content type discriminator"
     },
     "filename": {
@@ -30,5 +29,10 @@
     }
   },
   "required": ["type"],
+  "anyOf": [
+    { "required": ["file_data"] },
+    { "required": ["file_url"] },
+    { "required": ["file_id"] }
+  ],
   "additionalProperties": false
 }

@@ -36,7 +36,7 @@
           "description": "Strict schema enforcement for function arguments."
         }
       },
-      "required": ["type", "name", "description", "parameters", "strict"]
+      "required": ["type", "name"]
     }
   ]
 }

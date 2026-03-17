@@ -12,14 +12,16 @@
           "properties": {
             "type": { "type": "string", "const": "text" }
           },
-          "required": ["type"]
+          "required": ["type"],
+          "additionalProperties": false
         },
         {
           "type": "object",
           "properties": {
             "type": { "type": "string", "const": "json_object" }
           },
-          "required": ["type"]
+          "required": ["type"],
+          "additionalProperties": false
         },
         {
           "type": "object",
@@ -30,7 +32,8 @@
             "schema": { "type": ["object", "null"], "description": "JSON Schema definition" },
             "strict": { "type": "boolean", "description": "Strict schema enforcement" }
           },
-          "required": ["type", "name", "description", "schema", "strict"]
+          "required": ["type", "name", "description", "schema", "strict"],
+          "additionalProperties": false
         }
       ],
       "description": "Output format: text, json_object, or json_schema"

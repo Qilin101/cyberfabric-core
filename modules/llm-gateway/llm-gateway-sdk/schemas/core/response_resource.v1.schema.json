@@ -16,10 +16,12 @@
     },
     "created_at": {
       "type": "integer",
+      "minimum": 0,
       "description": "Unix timestamp of creation"
     },
     "completed_at": {
       "type": ["integer", "null"],
+      "minimum": 0,
       "description": "Unix timestamp of completion"
     },
     "status": {
@@ -170,6 +172,27 @@
     "temperature", "reasoning", "usage", "max_output_tokens",
     "max_tool_calls", "store", "background", "service_tier",
     "metadata", "safety_identifier", "prompt_cache_key"
+  ],
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "failed" } } },
+      "then": { "properties": { "error": { "$ref": "gts://gts.x.llmgw.core.error.v1~" } } },
+      "else": { "properties": { "error": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "status": { "const": "incomplete" } } },
+      "then": {
+        "properties": {
+          "incomplete_details": {
+            "type": "object",
+            "properties": { "reason": { "type": "string" } },
+            "required": ["reason"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "else": { "properties": { "incomplete_details": { "type": "null" } } }
+    }
   ],
   "additionalProperties": false
 }

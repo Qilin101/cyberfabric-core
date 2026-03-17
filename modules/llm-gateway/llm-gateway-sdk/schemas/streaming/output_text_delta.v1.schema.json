@@ -17,10 +17,12 @@
         },
         "output_index": {
           "type": "integer",
+          "minimum": 0,
           "description": "The index of the output item that was updated."
         },
         "content_index": {
           "type": "integer",
+          "minimum": 0,
           "description": "The index of the content part that was updated."
         },
         "delta": {
@@ -44,11 +46,11 @@
                     "logprob": { "type": "number" },
                     "bytes": { "type": "array", "items": { "type": "integer" } }
                   },
-                  "required": ["token", "logprob", "bytes"]
+                  "required": ["token", "logprob"]
                 }
               }
             },
-            "required": ["token", "logprob", "bytes", "top_logprobs"]
+            "required": ["token", "logprob", "top_logprobs"]
           },
           "description": "The token log probabilities emitted with the delta, if any."
         }

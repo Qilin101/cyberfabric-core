@@ -17,10 +17,12 @@
         },
         "output_index": {
           "type": "integer",
+          "minimum": 0,
           "description": "The index of the output item that was updated."
         },
         "content_index": {
           "type": "integer",
+          "minimum": 0,
           "description": "The index of the content part that was completed."
         },
         "text": {
@@ -34,7 +36,7 @@
             "properties": {
               "token": { "type": "string" },
               "logprob": { "type": "number" },
-              "bytes": { "type": "array", "items": { "type": "integer" } },
+              "bytes": { "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 255 } },
               "top_logprobs": {
                 "type": "array",
                 "items": {
@@ -42,13 +44,13 @@
                   "properties": {
                     "token": { "type": "string" },
                     "logprob": { "type": "number" },
-                    "bytes": { "type": "array", "items": { "type": "integer" } }
+                    "bytes": { "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 255 } }
                   },
-                  "required": ["token", "logprob", "bytes"]
+                  "required": ["token", "logprob"]
                 }
               }
             },
-            "required": ["token", "logprob", "bytes", "top_logprobs"]
+            "required": ["token", "logprob", "top_logprobs"]
           },
           "description": "The token log probabilities emitted with the final text, if any."
         }

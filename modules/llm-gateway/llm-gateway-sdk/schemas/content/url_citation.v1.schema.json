@@ -27,7 +27,7 @@
     "end_index": {
       "type": "integer",
       "minimum": 0,
-      "description": "End character index in the output text"
+      "description": "End character index in the output text (must be >= start_index)"
     }
   },
   "required": ["type", "url", "title", "start_index", "end_index"],

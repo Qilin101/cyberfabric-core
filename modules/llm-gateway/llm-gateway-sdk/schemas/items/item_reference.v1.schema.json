@@ -8,10 +8,8 @@
     {
       "properties": {
         "type": {
-          "oneOf": [
-            { "type": "string", "const": "item_reference" },
-            { "type": "null" }
-          ],
+          "type": "string",
+          "const": "item_reference",
           "description": "Item type discriminator (optional per spec)."
         },
         "id": {

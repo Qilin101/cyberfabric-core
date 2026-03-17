@@ -13,13 +13,11 @@
         },
         "output_index": {
           "type": "integer",
+          "minimum": 0,
           "description": "The index of the output item that was added."
         },
         "item": {
-          "oneOf": [
-            { "$ref": "gts://gts.x.llmgw.items.item.v1~" },
-            { "type": "null" }
-          ],
+          "$ref": "gts://gts.x.llmgw.items.item.v1~",
           "description": "The output item that was added."
         }
       },

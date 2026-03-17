@@ -19,5 +19,6 @@
       },
       "required": ["type", "schema_id"]
     }
-  ]
+  ],
+  "unevaluatedProperties": false
 }

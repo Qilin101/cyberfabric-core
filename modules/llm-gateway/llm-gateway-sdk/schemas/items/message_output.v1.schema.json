@@ -22,7 +22,7 @@
         },
         "role": {
           "type": "string",
-          "enum": ["user", "assistant", "system", "developer"],
+          "enum": ["assistant"],
           "description": "Message author role."
         },
         "content": {

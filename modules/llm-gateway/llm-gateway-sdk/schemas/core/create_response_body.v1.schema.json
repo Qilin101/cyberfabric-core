@@ -120,7 +120,8 @@
           "type": "object",
           "properties": {
             "include_usage": { "type": "boolean" }
-          }
+          },
+          "additionalProperties": false
         },
         { "type": "null" }
       ],
@@ -145,6 +146,7 @@
     "metadata": {
       "type": ["object", "null"],
       "additionalProperties": { "type": "string", "maxLength": 512 },
+      "propertyNames": { "maxLength": 64 },
       "maxProperties": 16,
       "description": "Key-value metadata (up to 16 pairs, 64 char keys, 512 char values)"
     },
