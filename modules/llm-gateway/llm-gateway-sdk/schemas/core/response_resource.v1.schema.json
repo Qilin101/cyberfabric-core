@@ -35,7 +35,9 @@
           "type": "object",
           "properties": {
             "reason": { "type": "string" }
-          }
+          },
+          "required": ["reason"],
+          "additionalProperties": false
         },
         { "type": "null" }
       ],
@@ -126,8 +128,11 @@
       "description": "Reasoning configuration"
     },
     "usage": {
-      "$ref": "gts://gts.x.llmgw.core.usage.v1~",
-      "description": "Token usage information"
+      "oneOf": [
+        { "$ref": "gts://gts.x.llmgw.core.usage.v1~" },
+        { "type": "null" }
+      ],
+      "description": "Token usage information. Null until response is completed."
     },
     "max_output_tokens": {
       "type": ["integer", "null"],
@@ -172,27 +177,6 @@
     "temperature", "reasoning", "usage", "max_output_tokens",
     "max_tool_calls", "store", "background", "service_tier",
     "metadata", "safety_identifier", "prompt_cache_key"
-  ],
-  "allOf": [
-    {
-      "if": { "properties": { "status": { "const": "failed" } } },
-      "then": { "properties": { "error": { "$ref": "gts://gts.x.llmgw.core.error.v1~" } } },
-      "else": { "properties": { "error": { "type": "null" } } }
-    },
-    {
-      "if": { "properties": { "status": { "const": "incomplete" } } },
-      "then": {
-        "properties": {
-          "incomplete_details": {
-            "type": "object",
-            "properties": { "reason": { "type": "string" } },
-            "required": ["reason"],
-            "additionalProperties": false
-          }
-        }
-      },
-      "else": { "properties": { "incomplete_details": { "type": "null" } } }
-    }
   ],
   "additionalProperties": false
 }

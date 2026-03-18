@@ -15,16 +15,16 @@
       "description": "Original filename for display"
     },
     "file_data": {
-      "type": ["string", "null"],
+      "type": "string",
       "maxLength": 33554432,
       "description": "Base64-encoded file data"
     },
     "file_url": {
-      "type": ["string", "null"],
+      "type": "string",
       "description": "File URL"
     },
     "file_id": {
-      "type": ["string", "null"],
+      "type": "string",
       "description": "FileStorage file identifier (CyberFabric extension)"
     }
   },

@@ -17,10 +17,12 @@
         },
         "output_index": {
           "type": "integer",
+          "minimum": 0,
           "description": "The index of the output item that was updated."
         },
         "summary_index": {
           "type": "integer",
+          "minimum": 0,
           "description": "The index of the summary part that was added."
         },
         "part": {

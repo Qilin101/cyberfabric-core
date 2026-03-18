@@ -31,7 +31,7 @@
           "logprob": { "type": "number" },
           "bytes": {
             "type": "array",
-            "items": { "type": "integer" }
+            "items": { "type": "integer", "minimum": 0, "maximum": 255 }
           },
           "top_logprobs": {
             "type": "array",
@@ -42,7 +42,7 @@
                 "logprob": { "type": "number" },
                 "bytes": {
                   "type": "array",
-                  "items": { "type": "integer" }
+                  "items": { "type": "integer", "minimum": 0, "maximum": 255 }
                 }
               },
               "required": ["token", "logprob", "bytes"]

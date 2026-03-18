@@ -17,6 +17,7 @@
         },
         "output_index": {
           "type": "integer",
+          "minimum": 0,
           "description": "The index of the output item that was updated."
         },
         "arguments": {

@@ -38,7 +38,7 @@
         },
         "status": {
           "type": ["string", "null"],
-          "enum": ["in_progress", "completed", "incomplete"],
+          "enum": ["in_progress", "completed", "incomplete", null],
           "description": "Item status."
         }
       },
