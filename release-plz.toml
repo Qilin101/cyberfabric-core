@@ -274,3 +274,8 @@ name = "cf-mini-chat"
 changelog_update = false
 git_release_enable = false
 
+[[package]]
+name = "cf-model-registry-sdk"
+changelog_update = false
+git_release_enable = false
+

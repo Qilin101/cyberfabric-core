@@ -1,10 +1,12 @@
+<!-- Updated: 2026-04-17 by Constructor Tech -->
+
 # Technical Design — Model Registry
 
 ## 1. Architecture Overview
 
 ### 1.1 Architectural Vision
 
-Model Registry provides a centralized catalog of AI models with tenant-level availability and approval workflows. The service is the authoritative source for model metadata, capabilities, provider cost data, and tenant access control. LLM Gateway queries the registry to resolve model identifiers to provider endpoints and verify tenant access.
+Model Registry provides a centralized catalog of AI models with tenant-level availability and approval workflows. The service is the authoritative source for model metadata, capabilities, API resolution (provider routing and OAGW alias), default inference parameters, context window limits, cost data, and tenant access control. LLM Gateway queries the registry to resolve model identifiers to provider endpoints and verify tenant access.
 
 The architecture follows the CyberFabric SDK pattern with clear separation between public API surface (`model-registry-sdk`) and implementation (`model-registry`). The system is optimized for high read throughput (1000:1 read:write ratio) with distributed caching (Redis default, pluggable backend). All provider API calls route through Outbound API Gateway for credential injection and circuit breaking.
 
@@ -132,7 +134,7 @@ All provider API calls for model discovery must route through Outbound API Gatew
 
 **ID**: `cpt-cf-model-registry-constraint-no-credentials`
 
-Model Registry does not store provider credentials. Provider configuration includes slug, name, GTS type, base URL, and discovery settings. Credential management is OAGW responsibility.
+Model Registry does not store provider credentials. Provider configuration includes slug, name, GTS type, OAGW alias, and discovery settings. All provider access routes through OAGW upstreams referenced by `oagw_alias`. Credential management is OAGW responsibility.
 
 #### Approval Service Integration
 
@@ -185,7 +187,69 @@ ProviderSlug = 1-64 chars, lowercase alphanumeric + hyphen
 LifecycleStatus = production | preview | experimental | deprecated | sunset
 ApprovalStatus = pending | approved | rejected | revoked
 ProviderHealthStatus = healthy | degraded | unhealthy
+SupportedApi = completion | embedding
+ReasoningEffort = none | low | medium | high | xhigh
+ServiceTier = auto | default | flex | priority
 ```
+
+**`ModelInfo`** — all model data lives inside `ModelInfo` on the `Model` struct:
+
+- **display_name** (`String`) — display name shown in UI
+- **description** (`Option<String>`) — model description
+- **family** (`Option<String>`) — model family (e.g. `"gpt-4"`, `"claude"`, `"llama"`)
+- **vendor** (`Option<String>`) — model vendor (e.g. `"OpenAI"`, `"Anthropic"`, `"Meta"`)
+- **region** (`Option<String>`) — deployment region (e.g. `"us-east-1"`, `"eu-west-1"`)
+- **hosted_by** (`Option<String>`) — infrastructure host (e.g. `"Azure"`, `"AWS Bedrock"`, `"self-hosted"`)
+- **last_release_at** (`Option<DateTime>`) — when the model version was last released by the vendor
+- **reasoning_level** (`Option<String>`) — informational reasoning level label, display-only
+- **version** (`Option<String>`) — model version string
+- **sort_order** (`Option<i32>`) — display order in model picker / lists
+- **icon** (`Option<String>`) — URL to model icon
+- **multiplier_display** (`Option<String>`) — human-readable cost multiplier label (e.g. `"1x"`, `"3x"`)
+- **performance** (`ModelPerformance`) — estimated performance characteristics
+  - **response_latency_ms** (`Option<u32>`) — expected response latency in milliseconds
+  - **tokens_per_second** (`Option<u32>`) — expected generation speed
+- **additional_info** (`HashMap<String, Value>`) — arbitrary key-value metadata for provider- or deployment-specific info
+- **api_resolution** (`ApiResolution`) — routing and resolution for calling the model via OAGW
+  - **supported_api** (`Vec<SupportedApi>`) — which API types this model supports (completion, embedding)
+  - **api_family** (`String`) — provider plugin family (e.g. `"openai"`, `"anthropic"`, `"ollama"`)
+  - **oagw_alias** (`String`) — OAGW upstream alias for credentials and base URL routing
+  - **provider_model_id** (`String`) — provider's model identifier, used in `canonical_id` and sent to provider; users can create aliases for alternative names
+- **capabilities** (`ModelCapabilities`) — what the model can do
+  - **vision** (`bool`) — supports image/vision input
+  - **reasoning** (`ReasoningCapability`) — reasoning controls
+    - **effort** (`bool`) — supports `reasoning_effort` parameter
+    - **toggle** (`bool`) — supports toggling reasoning on/off
+    - **resume** (`bool`) — supports resuming a reasoning chain
+    - **budget** (`bool`) — supports explicit reasoning token budget
+  - **function_calling** (`bool`) — supports function/tool calling
+  - **response_schema** (`bool`) — supports structured output via JSON schema
+  - **streaming** (`bool`) — supports streaming responses
+  - **file_input** (`bool`) — supports file input (PDFs, documents)
+  - **image_generation** (`bool`) — can generate images
+  - **code_interpreter** (`bool`) — supports sandboxed code execution
+  - **web_search** (`WebSearchCapability`) — web search capability
+    - **enabled** (`bool`) — web search is available
+    - **allowed_domains** (`bool`) — supports configuring allowed domains
+- **disabled_capabilities** (`ModelCapabilities`) — same structure as `capabilities`; flags set to `true` indicate the capability is administratively disabled
+- **context_window** (`ContextWindow`) — token limits
+  - **max_input_tokens** (`u32`) — maximum input tokens
+  - **max_output_tokens** (`Option<u32>`) — maximum output tokens; `None` for embedding models
+  - **output_vector_size** (`Option<u32>`) — output vector dimensionality for embedding models
+- **parameters** (`ModelParameters`) — default inference parameters and override policy
+  - **temperature** (`Option<f64>`) — sampling temperature
+  - **reasoning_effort** (`Option<ReasoningEffort>`) — default reasoning effort (`None`, `Low`, `Medium`, `High`, `XHigh`)
+  - **max_tokens** (`Option<u32>`) — default per-request output token cap (distinct from `context_window.max_output_tokens` hard limit)
+  - **top_p** (`Option<f64>`) — nucleus sampling parameter
+  - **stop** (`Option<Vec<String>>`) — stop sequences
+  - **service_tier** (`Option<ServiceTier>`) — request routing tier (`Auto`, `Default`, `Flex`, `Priority`)
+  - **extra_body** (`Option<Value>`) — provider-specific extra parameters
+  - **allow_parameter_override** (`bool`) — whether users can override set parameters per-request
+  - **allow_extra_params** (`Vec<String>`) — which extra parameter names users may pass in the request body
+- **cost** (`ModelCost`) — token pricing in micro-credits per 1K tokens (`u64`, scaled x1,000,000)
+  - **input_token_cost_micro** (`Option<u64>`) — micro-credits per 1K input tokens
+  - **output_token_cost_micro** (`Option<u64>`) — micro-credits per 1K output tokens
+  - **cached_input_token_cost_micro** (`Option<u64>`) — micro-credits per 1K cached input tokens
 
 ### 3.2 Component Model
 
@@ -302,7 +366,7 @@ SeaORM-based repository implementation. Handles CRUD operations, tenant-scoped q
 | `DELETE` | `/model-registry/v1/aliases/{name}` | Delete alias | P2 |
 
 **OData Support**:
-- `$filter`: capability flags, provider_slug, provider_gts_type, approval_status, lifecycle_status, managed, architecture, format
+- `$filter`: `lifecycle_status`, `approval_status`, `info.api_resolution.api_family`, `info.api_resolution.supported_api`, `info.capabilities.vision`, `info.capabilities.function_calling`, `info.capabilities.streaming`, `info.capabilities.reasoning.effort`, `info.vendor`, `info.family`
 - `$select`: field projection
 - `$top`, `$skip`: pagination
 - `$orderby`: sorting
@@ -381,7 +445,7 @@ sequenceDiagram
     MR->>Cache: get(mr:{tenant}:model:{id})
     alt Cache Hit
         Cache-->>MR: model + approval_status
-        MR-->>LLMGateway: TenantModel
+        MR-->>LLMGateway: Model
     else Cache Miss
         MR->>DB: SELECT model WHERE canonical_id
         DB-->>MR: model
@@ -390,7 +454,7 @@ sequenceDiagram
         MR->>Approval: get_approval_status(model_id, tenant_chain)
         Approval-->>MR: approved | pending | rejected
         MR->>Cache: set(mr:{tenant}:model:{id}, TTL)
-        MR-->>LLMGateway: TenantModel
+        MR-->>LLMGateway: Model
     end
 ```
 
@@ -417,7 +481,7 @@ sequenceDiagram
     Admin->>MR: trigger_discovery(provider_id)
     MR->>DB: SELECT provider WHERE id
     DB-->>MR: provider config
-    MR->>OAGW: GET {base_url}/models
+    MR->>OAGW: GET /models (via oagw_alias)
     OAGW->>Provider: GET /models (with credentials)
     Provider-->>OAGW: models list
     OAGW-->>MR: models list
@@ -478,7 +542,7 @@ sequenceDiagram
 | slug | VARCHAR(64) | NOT NULL | Human-readable identifier |
 | name | VARCHAR(255) | NOT NULL | Display name |
 | gts_type | VARCHAR(255) | NOT NULL | GTS type identifier |
-| base_url | VARCHAR(2048) | NOT NULL | Provider API endpoint |
+| oagw_alias | VARCHAR(255) | NOT NULL | OAGW upstream alias for provider API access |
 | status | VARCHAR(20) | NOT NULL, DEFAULT 'active' | active, disabled |
 | managed | BOOLEAN | NOT NULL, DEFAULT false | Whether CyberFabric can manage this provider (e.g. install/unload models on ollama, lm_studio) |
 | metadata | JSONB | | Provider-specific metadata, GTS-typed (e.g. `gts.cf.genai.models.provider.v1~x.genai.local.provider.v1~` for local providers with capabilities like `install_model`, `import_model`, `streaming`) |
@@ -500,10 +564,7 @@ sequenceDiagram
 | id | UUID | PK | Primary key |
 | provider_id | UUID | FK, NOT NULL | Foreign key to providers |
 | tenant_id | UUID | NOT NULL, INDEX | Owner tenant (denormalized for query performance) |
-| canonical_id | VARCHAR(512) | NOT NULL | Format: {provider_slug}::{provider_model_id} |
-| provider_model_id | VARCHAR(255) | NOT NULL | Provider's model identifier |
-| name | VARCHAR(255) | NOT NULL | Display name |
-| description | TEXT | | Model description |
+| canonical_id | VARCHAR(512) | NOT NULL | Format: `{provider_slug}::{provider_model_id}` |
 | lifecycle_status | VARCHAR(20) | NOT NULL | production, preview, experimental, deprecated, sunset |
 | architecture | VARCHAR(64) | | Model architecture (qwen, llama, etc.) |
 | size_bytes | BIGINT | | Model size for capacity planning |
@@ -515,8 +576,20 @@ sequenceDiagram
 | deprecated_at | TIMESTAMPTZ | | Soft-delete timestamp |
 | created_at | TIMESTAMPTZ | NOT NULL | Creation timestamp |
 | updated_at | TIMESTAMPTZ | NOT NULL | Last update timestamp |
+| api_resolution | JSONB | NOT NULL | `ApiResolution`: supported API types (completion/embedding), api family (provider plugin), OAGW alias, provider model ID (used in `canonical_id` and sent to provider; users can create aliases to expose a different name) |
+| capabilities | JSONB | NOT NULL | `ModelCapabilities`: vision, reasoning (effort/toggle/resume/budget), function calling, response schema, streaming, file input, image generation, code interpreter, web search (enabled + allowed_domains support flag) |
+| disabled_capabilities | JSONB | NOT NULL | `ModelCapabilities`: same structure as `capabilities`; flags set to `true` indicate the capability is administratively disabled |
+| context_window | JSONB | NOT NULL | `ContextWindow`: max input tokens, max output tokens (optional for embedding models), output vector size |
+| parameters | JSONB | NOT NULL | `ModelParameters`: temperature, reasoning effort (`ReasoningEffort` enum), max tokens, top_p, stop (optional), service tier (`ServiceTier` enum), extra body; override policy (allow parameter override, allow extra params) |
+| info | JSONB | NOT NULL | `ModelInfo`: display name, description, family, vendor, region, hosted by, last release at, reasoning level, version, UI hints (sort order, icon, multiplier display), performance (latency, tokens/sec), additional info dict |
+| cost | JSONB | NOT NULL | `ModelCost`: input/output/cached input token cost in micro-credits per 1K tokens (`u64`, scaled ×1,000,000) |
 
 **Indexes**: (tenant_id), (tenant_id, canonical_id) UNIQUE, (provider_id), (lifecycle_status)
+
+**JSONB GIN Indexes** (for OData filtering on nested fields):
+- `api_resolution` GIN on `api_family`
+- `capabilities` GIN for capability flag queries
+- `info` GIN on `vendor`, `family`
 
 #### Table: provider_health (P2)
 
