@@ -45,14 +45,29 @@ pub struct MessagePluginCtx {
     pub call_ctx: PluginCallContext,
 }
 
+/// Shared context attached to every plugin invocation.
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone)]
 pub struct PluginCallContext {
+    /// Correlation ID for this plugin invocation. Used for log correlation and
+    /// distributed tracing; Chat Engine generates a fresh UUIDv4 per call (or
+    /// may propagate an upstream correlation ID). Plugins should include this
+    /// in every log line emitted while handling the call.
+    pub request_id: Uuid,
+    /// Tenant that owns the session issuing the call.
     pub tenant_id: String,
+    /// End-user behind the call (opaque string from the auth token).
     pub user_id: String,
+    /// GTS plugin instance ID that is handling the call (matches the bound
+    /// `SessionType.plugin_instance_id`).
     pub plugin_instance_id: String,
+    /// Session type the call is scoped to.
     pub session_type_id: Uuid,
+    /// Opaque plugin-specific configuration loaded from `plugin_configs` for
+    /// this `(plugin_instance_id, session_type_id)` pair.
     pub plugin_config: Option<serde_json::Value>,
+    /// Capability values selected for this call (subset of those declared by
+    /// the plugin via `Capability`).
     pub enabled_capabilities: Option<Vec<CapabilityValue>>,
 }
 
