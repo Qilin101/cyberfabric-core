@@ -45,9 +45,16 @@ pub trait ModelRegistryClientV1: Send + Sync {
     /// List models available to the caller's tenant with `OData` filtering.
     ///
     /// Supports `$filter` on: `lifecycle_status`, `approval_status`,
-    /// `info.api_resolution.api_family`, `info.api_resolution.supported_api`,
-    /// `info.capabilities.*` (e.g. `vision`, `function_calling`, `streaming`,
-    /// `reasoning.effort`), `info.vendor`, `info.family`.
+    /// `info.provider_settings.kind`, `info.supported_api`,
+    /// `info.provider_model_id`, `info.capabilities.*` (e.g. `vision`,
+    /// `function_calling`, `streaming`, `reasoning.effort`), `info.vendor`,
+    /// `info.family`. Per-provider parameter and cost fields are not
+    /// filterable in v1 — see `docs/DESIGN.md` §3.3.
+    ///
+    /// Returns `Model<AnyProviderSettings>`. Consumers narrowed to a
+    /// specific provider (e.g. when they've already filtered on
+    /// `info.provider_settings.kind eq 'openai'`) can call
+    /// [`Model::try_into_typed`] on each result.
     #[cfg(feature = "odata")]
     async fn list_tenant_models(
         &self,

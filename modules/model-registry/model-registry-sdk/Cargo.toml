@@ -24,9 +24,13 @@ uuid = { workspace = true, features = ["serde"] }
 chrono = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
+schemars = { workspace = true, features = ["chrono04"] }
 modkit-security = { workspace = true }
 modkit-odata = { workspace = true, optional = true }
+gts.workspace = true
+gts-macros.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

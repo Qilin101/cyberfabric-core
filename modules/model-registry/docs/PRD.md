@@ -1,6 +1,69 @@
 # PRD: Model Registry
 
+
+<!-- toc -->
+
+- [1. Overview](#1-overview)
+  - [Purpose](#purpose)
+  - [Background / Problem Statement](#background--problem-statement)
+  - [Goals (Business Outcomes)](#goals-business-outcomes)
+  - [Glossary](#glossary)
+- [2. Actors](#2-actors)
+  - [Human Actors](#human-actors)
+  - [System Actors](#system-actors)
+- [3. Operational Concept & Environment](#3-operational-concept--environment)
+- [4. Scope](#4-scope)
+  - [In Scope](#in-scope)
+  - [Out of Scope](#out-of-scope)
+- [5. Domain Model](#5-domain-model)
+  - [Core Entities](#core-entities)
+- [6. Functional Requirements](#6-functional-requirements)
+  - [P1 — Core (MVP)](#p1--core-mvp)
+  - [P2 — Enhanced Features](#p2--enhanced-features)
+  - [P3 — Fine-Grained Access Control](#p3--fine-grained-access-control)
+- [7. Auditable Operations](#7-auditable-operations)
+- [8. Non-Functional Requirements](#8-non-functional-requirements)
+  - [Performance](#performance)
+  - [Availability](#availability)
+  - [Scale](#scale)
+  - [Rate Limiting](#rate-limiting)
+- [9. Error Codes](#9-error-codes)
+- [10. Security Considerations](#10-security-considerations)
+- [11. Consumers](#11-consumers)
+- [12. Public Library Interfaces](#12-public-library-interfaces)
+- [13. Use Cases](#13-use-cases)
+  - [UC-001: Get Tenant Model](#uc-001-get-tenant-model)
+  - [UC-002: List Tenant Models](#uc-002-list-tenant-models)
+  - [UC-003: Model Discovery](#uc-003-model-discovery)
+  - [UC-004: Model Approval](#uc-004-model-approval)
+  - [UC-005: Model Revocation](#uc-005-model-revocation)
+  - [UC-006: Register Provider](#uc-006-register-provider)
+  - [UC-007: Disable Provider](#uc-007-disable-provider)
+  - [UC-008: Re-enable Provider](#uc-008-re-enable-provider)
+  - [UC-009: Get Model Provider Cost](#uc-009-get-model-provider-cost)
+  - [UC-010: Configure Auto-Approval Rule](#uc-010-configure-auto-approval-rule)
+  - [UC-011: Get Provider Discovery Health](#uc-011-get-provider-discovery-health)
+  - [UC-012: Create Alias](#uc-012-create-alias)
+  - [UC-013: Resolve Alias](#uc-013-resolve-alias)
+  - [UC-014: Handle Degraded Mode](#uc-014-handle-degraded-mode)
+  - [UC-015: Handle Tenant Re-parenting](#uc-015-handle-tenant-re-parenting)
+  - [UC-016: Bulk Approve Models](#uc-016-bulk-approve-models)
+  - [UC-017: Trigger Discovery](#uc-017-trigger-discovery)
+  - [UC-018: Approve Model for User Group](#uc-018-approve-model-for-user-group)
+  - [UC-019: Override User Access](#uc-019-override-user-access)
+- [14. Acceptance Criteria](#14-acceptance-criteria)
+- [15. Dependencies](#15-dependencies)
+- [16. Assumptions](#16-assumptions)
+- [17. Risks](#17-risks)
+- [18. Open Questions](#18-open-questions)
+- [19. Migration & Rollback](#19-migration--rollback)
+- [20. Traceability](#20-traceability)
+
+<!-- /toc -->
+
 ## 1. Overview
+
+### Purpose
 
 **Purpose**: Model Registry provides a centralized catalog of AI models with tenant-level availability and approval workflows.
 
@@ -50,19 +113,61 @@ Model Registry is the authoritative source for model metadata, capabilities, pro
 - Model resolution latency < 10ms P99
 - 99.9% availability
 
-### 1.1 Background
+### Background / Problem Statement
 
 LLM Gateway requires a centralized source of truth for model availability, capabilities, and provider cost. Without Model Registry, each consumer would need to maintain its own model catalog, leading to inconsistency and duplicated approval workflows.
 
-### 1.2 Goals
+### Goals (Business Outcomes)
 
 1. Single source of truth for AI model metadata across the platform — including both unmanaged models (cloud, frontier) and managed models (local, self-hosted)
 2. Tenant-controlled model availability with inheritance from parent tenants
 3. Streamlined approval process
 
-### 1.3 Scope
+### Glossary
 
-#### In Scope
+| Term | Definition |
+|------|------------|
+| AICredits | Internal platform currency for model usage cost/pricing |
+| Provider Cost | Raw cost data from providers in AICredits; NOT user-facing pricing |
+| OAGW | Outbound API Gateway - handles provider authentication and circuit breaking |
+| GTS | Global Type System - platform-wide type definitions and contracts |
+| GTS Type (Provider) | Versioned provider type identifier (e.g., `gts.cf.genai.model.provider.v1~msft.azure._.ai_studio.v1~`) |
+| Root Tenant | Top-level tenant from which all other tenants inherit |
+| Canonical ID | Unique model identifier in format `{provider_slug}::{provider_model_id}` |
+| Provider Slug | Human-readable unique identifier for a provider instance (e.g., `azure-corp-global`) |
+| Provider Plugin | Module responsible for communication with specific LLM provider |
+
+## 2. Actors
+
+### Human Actors
+
+#### Tenant Administrator
+
+**ID**: `cpt-cf-model-registry-actor-tenant-admin`
+
+**Role**: Approves or rejects models for tenant access. Manages tenant-specific providers. Can only restrict access compared to parent tenant, not expand.
+
+#### Platform Administrator
+
+**ID**: `cpt-cf-model-registry-actor-platform-admin`
+
+**Role**: Manages root tenant configuration. Configures global providers. Sets baseline that all tenants inherit.
+
+### System Actors
+
+#### LLM Gateway
+
+**ID**: `cpt-cf-model-registry-actor-llm-gateway`
+
+**Role**: Queries registry to resolve model identifiers (canonical ID) to provider details. Checks tenant availability. Retrieves model capabilities and provider cost.
+
+## 3. Operational Concept & Environment
+
+Project-wide runtime, OS, architecture, lifecycle policy, and integration patterns are defined in the root PRD. Model Registry has no module-specific deviations from those defaults.
+
+## 4. Scope
+
+### In Scope
 
 - Model catalog CRUD (models, providers)
 - Tenant-level model availability configuration
@@ -71,7 +176,7 @@ LLM Gateway requires a centralized source of truth for model availability, capab
 - Model capabilities metadata
 - Cache management with TTL-based invalidation
 
-#### Out of Scope
+### Out of Scope
 
 | Item | Reason / Owner |
 |------|----------------|
@@ -89,66 +194,9 @@ LLM Gateway requires a centralized source of truth for model availability, capab
 | Provider plugin architecture | DESIGN.md |
 | Notifications | Separate notification system |
 
-### 1.4 Assumptions
+## 5. Domain Model
 
-1. Tenant Resolver provides tenant hierarchy data reliably and is highly available
-2. OAGW handles all provider authentication
-3. OAGW enforces outbound URL policy (blocks internal networks, requires HTTPS)
-4. Each provider plugin exposes an endpoint returning available models (implementation is plugin responsibility)
-5. Distributed cache is available (default: Redis); cache backend is pluggable for vendor customization. If cache unavailable, fallback to direct DB queries
-6. Platform authenticates requests and provides verified tenant context
-7. Platform provides audit logging for all operations
-8. Platform provides distributed tracing, structured logging, metrics, and health endpoints
-
-### 1.5 Risks
-
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Cache invalidation delay | Stale model data served (up to TTL) | TTL-based expiry (own data 30 min, inherited 5 min) |
-| Tenant hierarchy changes | Inherited approvals may become invalid | Invalidate tenant cache on re-parenting event |
-| Provider removes model without notice | Requests fail until catalog synced | Periodic sync detection |
-
-### 1.6 Glossary
-
-| Term | Definition |
-|------|------------|
-| AICredits | Internal platform currency for model usage cost/pricing |
-| Provider Cost | Raw cost data from providers in AICredits; NOT user-facing pricing |
-| OAGW | Outbound API Gateway - handles provider authentication and circuit breaking |
-| GTS | Global Type System - platform-wide type definitions and contracts |
-| GTS Type (Provider) | Versioned provider type identifier (e.g., `gts.cf.genai.model.provider.v1~msft.azure._.ai_studio.v1~`) |
-| Root Tenant | Top-level tenant from which all other tenants inherit |
-| Canonical ID | Unique model identifier in format `{provider_slug}::{provider_model_id}` |
-| Provider Slug | Human-readable unique identifier for a provider instance (e.g., `azure-corp-global`) |
-| Provider Plugin | Module responsible for communication with specific LLM provider |
-
-## 2. Actors
-
-### 2.1 Human Actors
-
-#### Tenant Administrator
-
-**ID**: `cpt-cf-model-registry-actor-tenant-admin`
-
-**Role**: Approves or rejects models for tenant access. Manages tenant-specific providers. Can only restrict access compared to parent tenant, not expand.
-
-#### Platform Administrator
-
-**ID**: `cpt-cf-model-registry-actor-platform-admin`
-
-**Role**: Manages root tenant configuration. Configures global providers. Sets baseline that all tenants inherit.
-
-### 2.2 System Actors
-
-#### LLM Gateway
-
-**ID**: `cpt-cf-model-registry-actor-llm-gateway`
-
-**Role**: Queries registry to resolve model identifiers (canonical ID) to provider details. Checks tenant availability. Retrieves model capabilities and provider cost.
-
-## 3. Domain Model
-
-### 3.1 Core Entities
+### Core Entities
 
 #### Provider
 
@@ -305,7 +353,7 @@ Maps human-friendly names to canonical model IDs.
 
 **Shadowing**: Child tenant aliases can shadow parent aliases. Child tenant controls their namespace.
 
-## 4. Functional Requirements
+## 6. Functional Requirements
 
 ### P1 — Core (MVP)
 
@@ -612,7 +660,125 @@ The system must support individual user restrictions/allowances for model access
 
 **Actors**: `cpt-cf-model-registry-actor-tenant-admin`
 
-## 5. Use Cases
+## 7. Auditable Operations
+
+The following operations MUST be logged for audit compliance:
+
+| Operation | Audit Fields |
+|-----------|--------------|
+| Model approved | model_id, tenant_id, actor_id, timestamp |
+| Model rejected | model_id, tenant_id, actor_id, timestamp |
+| Model revoked | model_id, tenant_id, actor_id, timestamp |
+| Provider registered | provider_id, tenant_id, actor_id, timestamp |
+| Provider disabled | provider_id, tenant_id, actor_id, timestamp |
+| Provider enabled | provider_id, tenant_id, actor_id, timestamp |
+| Alias created (P2) | alias_name, target, tenant_id, actor_id, timestamp |
+| Alias updated (P2) | alias_name, old_target, new_target, tenant_id, actor_id, timestamp |
+| Alias deleted (P2) | alias_name, tenant_id, actor_id, timestamp |
+| Auto-approval rule created (P2) | rule_id, criteria, tenant_id, actor_id, timestamp |
+| Auto-approval rule updated (P2) | rule_id, tenant_id, actor_id, timestamp |
+| Auto-approval rule deleted (P2) | rule_id, tenant_id, actor_id, timestamp |
+
+Read operations are not audited (high volume, low value).
+
+## 8. Non-Functional Requirements
+
+### Performance
+
+- [ ] `p1` - **ID**: `cpt-cf-model-registry-nfr-performance`
+
+| Operation | P50 | P99 |
+|-----------|-----|-----|
+| `get_tenant_model` | 2ms | 10ms |
+| `list_tenant_models` | 10ms | 50ms |
+| `approve_model` | - | 100ms |
+| Discovery job (per provider) | - | 30s |
+
+Caching: Distributed cache (default: Redis, pluggable) with TTL-based invalidation.
+- Own data: 30 min TTL
+- Inherited data: 5 min TTL
+
+### Availability
+
+- [ ] `p1` - **ID**: `cpt-cf-model-registry-nfr-availability`
+
+Target: 99.9% availability.
+
+P1: DB unavailable = requests fail (fail-closed).
+
+P2: Tiered degraded mode (metadata from cache, approval check fails).
+
+Cache unavailable: Fallback to direct DB queries (higher latency).
+
+### Scale
+
+- [ ] `p1` - **ID**: `cpt-cf-model-registry-nfr-scale`
+
+| Dimension | Target |
+|-----------|--------|
+| Models per provider | 100 |
+| Providers per tenant | 20 |
+| Tenants | 10,000 |
+| Total models (worst case) | ~2,000,000 |
+| Read:Write ratio | 1000:1 |
+
+### Rate Limiting
+
+- [ ] `p1` - **ID**: `cpt-cf-model-registry-nfr-rate-limiting`
+
+The system must specify rate limits for admin operations (enforcement by infrastructure).
+
+| Operation | Limit |
+|-----------|-------|
+| Model approval requests | 100/min per tenant |
+| Provider management | 10/min (platform-wide) |
+
+All limits must be configurable.
+
+## 9. Error Codes
+
+| Code | HTTP Status | Description |
+|------|-------------|-------------|
+| `model_not_found` | 404 | Model identifier does not exist in catalog |
+| `model_not_approved` | 403 | Model exists but not approved for tenant |
+| `model_deprecated` | 410 | Model was removed by provider (soft-deleted) |
+| `provider_not_found` | 404 | Provider identifier does not exist |
+| `provider_disabled` | 404 | Provider exists but is disabled |
+| `invalid_transition` | 409 | Invalid approval state transition (e.g., concurrent modification) |
+| `validation_error` | 400 | Input validation failed |
+| `unauthorized` | 403 | Actor lacks required role for operation |
+| `service_unavailable` | 503 | Database unavailable |
+
+Error responses follow RFC 9457 Problem Details standard.
+
+## 10. Security Considerations
+
+| Threat | Mitigation |
+|--------|------------|
+| Tenant data leakage | Tenant ID prefix in all cache keys; query filters enforce tenant scope |
+| Unauthorized approval | Role-based authorization checks on all admin operations |
+| Cache poisoning | TTL-based expiry; no user-controlled cache keys |
+| Provider credential exposure | Credentials handled by OAGW, not stored in Model Registry |
+| Privilege escalation via hierarchy | Child tenants can only restrict, not expand parent permissions |
+| Stale approval served | Approval status always verified from DB (P1 fail-closed) |
+
+## 11. Consumers
+
+| Module | Usage |
+|--------|-------|
+| LLM Gateway | Model resolution, availability checks, provider cost |
+| Chat Engine | Model selection for conversations |
+| Tenant Admin UI | Approval management, provider configuration |
+
+## 12. Public Library Interfaces
+
+To be defined in DESIGN.md.
+
+Key interfaces:
+- `ModelRegistryClient` — SDK for LLM Gateway integration
+- `AdminClient` — SDK for Tenant Admin UI
+
+## 13. Use Cases
 
 ### UC-001: Get Tenant Model
 
@@ -1009,134 +1175,7 @@ The system must support individual user restrictions/allowances for model access
 - User override takes precedence over group and tenant approvals
 - Can both grant (if tenant allows) and revoke access
 
-## 6. Auditable Operations
-
-The following operations MUST be logged for audit compliance:
-
-| Operation | Audit Fields |
-|-----------|--------------|
-| Model approved | model_id, tenant_id, actor_id, timestamp |
-| Model rejected | model_id, tenant_id, actor_id, timestamp |
-| Model revoked | model_id, tenant_id, actor_id, timestamp |
-| Provider registered | provider_id, tenant_id, actor_id, timestamp |
-| Provider disabled | provider_id, tenant_id, actor_id, timestamp |
-| Provider enabled | provider_id, tenant_id, actor_id, timestamp |
-| Alias created (P2) | alias_name, target, tenant_id, actor_id, timestamp |
-| Alias updated (P2) | alias_name, old_target, new_target, tenant_id, actor_id, timestamp |
-| Alias deleted (P2) | alias_name, tenant_id, actor_id, timestamp |
-| Auto-approval rule created (P2) | rule_id, criteria, tenant_id, actor_id, timestamp |
-| Auto-approval rule updated (P2) | rule_id, tenant_id, actor_id, timestamp |
-| Auto-approval rule deleted (P2) | rule_id, tenant_id, actor_id, timestamp |
-
-Read operations are not audited (high volume, low value).
-
-## 7. Non-Functional Requirements
-
-### Performance
-
-- [ ] `p1` - **ID**: `cpt-cf-model-registry-nfr-performance`
-
-| Operation | P50 | P99 |
-|-----------|-----|-----|
-| `get_tenant_model` | 2ms | 10ms |
-| `list_tenant_models` | 10ms | 50ms |
-| `approve_model` | - | 100ms |
-| Discovery job (per provider) | - | 30s |
-
-Caching: Distributed cache (default: Redis, pluggable) with TTL-based invalidation.
-- Own data: 30 min TTL
-- Inherited data: 5 min TTL
-
-### Availability
-
-- [ ] `p1` - **ID**: `cpt-cf-model-registry-nfr-availability`
-
-Target: 99.9% availability.
-
-P1: DB unavailable = requests fail (fail-closed).
-
-P2: Tiered degraded mode (metadata from cache, approval check fails).
-
-Cache unavailable: Fallback to direct DB queries (higher latency).
-
-### Scale
-
-- [ ] `p1` - **ID**: `cpt-cf-model-registry-nfr-scale`
-
-| Dimension | Target |
-|-----------|--------|
-| Models per provider | 100 |
-| Providers per tenant | 20 |
-| Tenants | 10,000 |
-| Total models (worst case) | ~2,000,000 |
-| Read:Write ratio | 1000:1 |
-
-### Rate Limiting
-
-- [ ] `p1` - **ID**: `cpt-cf-model-registry-nfr-rate-limiting`
-
-The system must specify rate limits for admin operations (enforcement by infrastructure).
-
-| Operation | Limit |
-|-----------|-------|
-| Model approval requests | 100/min per tenant |
-| Provider management | 10/min (platform-wide) |
-
-All limits must be configurable.
-
-## 8. Error Codes
-
-| Code | HTTP Status | Description |
-|------|-------------|-------------|
-| `model_not_found` | 404 | Model identifier does not exist in catalog |
-| `model_not_approved` | 403 | Model exists but not approved for tenant |
-| `model_deprecated` | 410 | Model was removed by provider (soft-deleted) |
-| `provider_not_found` | 404 | Provider identifier does not exist |
-| `provider_disabled` | 404 | Provider exists but is disabled |
-| `invalid_transition` | 409 | Invalid approval state transition (e.g., concurrent modification) |
-| `validation_error` | 400 | Input validation failed |
-| `unauthorized` | 403 | Actor lacks required role for operation |
-| `service_unavailable` | 503 | Database unavailable |
-
-Error responses follow RFC 9457 Problem Details standard.
-
-## 9. Security Considerations
-
-| Threat | Mitigation |
-|--------|------------|
-| Tenant data leakage | Tenant ID prefix in all cache keys; query filters enforce tenant scope |
-| Unauthorized approval | Role-based authorization checks on all admin operations |
-| Cache poisoning | TTL-based expiry; no user-controlled cache keys |
-| Provider credential exposure | Credentials handled by OAGW, not stored in Model Registry |
-| Privilege escalation via hierarchy | Child tenants can only restrict, not expand parent permissions |
-| Stale approval served | Approval status always verified from DB (P1 fail-closed) |
-
-## 10. Dependencies
-
-| Module | Role |
-|--------|------|
-| Outbound API Gateway | Execute provider API calls (discovery) |
-| Tenant Resolver | Resolve tenant hierarchy (parent, children) |
-| Approval Service | Generic approval workflow engine for model approvals |
-| GTS | API contract types |
-
-## 11. Consumers
-
-| Module | Usage |
-|--------|-------|
-| LLM Gateway | Model resolution, availability checks, provider cost |
-| Chat Engine | Model selection for conversations |
-| Tenant Admin UI | Approval management, provider configuration |
-
-## 12. Public Library Interfaces
-
-To be defined in DESIGN.md.
-
-Key interfaces:
-- `ModelRegistryClient` — SDK for LLM Gateway integration
-- `AdminClient` — SDK for Tenant Admin UI
-
-## 13. Acceptance Criteria
+## 14. Acceptance Criteria
 
 | Category | Criteria | Priority |
 |----------|----------|----------|
@@ -1149,7 +1188,35 @@ Key interfaces:
 | Integration | LLM Gateway can resolve models and check availability | P1 |
 | Integration | Tenant Admin UI can manage approvals | P1 |
 
-## 14. Open Questions
+## 15. Dependencies
+
+| Module | Role |
+|--------|------|
+| Outbound API Gateway | Execute provider API calls (discovery) |
+| Tenant Resolver | Resolve tenant hierarchy (parent, children) |
+| Approval Service | Generic approval workflow engine for model approvals |
+| GTS | API contract types |
+
+## 16. Assumptions
+
+1. Tenant Resolver provides tenant hierarchy data reliably and is highly available
+2. OAGW handles all provider authentication
+3. OAGW enforces outbound URL policy (blocks internal networks, requires HTTPS)
+4. Each provider plugin exposes an endpoint returning available models (implementation is plugin responsibility)
+5. Distributed cache is available (default: Redis); cache backend is pluggable for vendor customization. If cache unavailable, fallback to direct DB queries
+6. Platform authenticates requests and provides verified tenant context
+7. Platform provides audit logging for all operations
+8. Platform provides distributed tracing, structured logging, metrics, and health endpoints
+
+## 17. Risks
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Cache invalidation delay | Stale model data served (up to TTL) | TTL-based expiry (own data 30 min, inherited 5 min) |
+| Tenant hierarchy changes | Inherited approvals may become invalid | Invalidate tenant cache on re-parenting event |
+| Provider removes model without notice | Requests fail until catalog synced | Periodic sync detection |
+
+## 18. Open Questions
 
 | # | Question | Status | Decision |
 |---|----------|--------|----------|
@@ -1157,7 +1224,7 @@ Key interfaces:
 | 2 | Specific QPS targets per endpoint | Deferred | DESIGN.md |
 | 3 | Provider plugin retry policies | Deferred | DESIGN.md |
 
-## 15. Migration & Rollback
+## 19. Migration & Rollback
 
 **Initial deployment**: No migration required (greenfield).
 
@@ -1169,7 +1236,7 @@ Key interfaces:
 
 **Cache invalidation on deployment**: Clear all cache keys on major version deployment.
 
-## 16. Traceability
+## 20. Traceability
 
 | Artifact | Link |
 |----------|------|
