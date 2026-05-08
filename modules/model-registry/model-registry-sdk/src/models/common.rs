@@ -14,9 +14,15 @@
 // ---------------------------------------------------------------------------
 
 /// Lifecycle status of a model in the catalog.
+///
+/// Wire format is lowercase to match `DESIGN.md §3.1` and so `OData` filters
+/// over `lifecycle_status` (per `DESIGN.md §3.3`) compare against the same
+/// strings the JSONB column stores.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
 )]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum LifecycleStatus {
     Production,
     Preview,
@@ -26,9 +32,14 @@ pub enum LifecycleStatus {
 }
 
 /// Approval status of a model for a tenant.
+///
+/// Wire format is lowercase to match `DESIGN.md §3.1` and `OData` filters
+/// over `approval_status`.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
 )]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum ApprovalStatus {
     Pending,
     Approved,
@@ -37,18 +48,26 @@ pub enum ApprovalStatus {
 }
 
 /// Operational status of a provider.
+///
+/// Wire format is lowercase to match `DESIGN.md §3.1`.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
 )]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum ProviderStatus {
     Active,
     Disabled,
 }
 
 /// Health status derived from discovery calls.
+///
+/// Wire format is lowercase to match `DESIGN.md §3.1`.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
 )]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum ProviderHealthStatus {
     Healthy,
     Degraded,
@@ -60,6 +79,10 @@ pub enum ProviderHealthStatus {
 /// A model may expose multiple API surfaces (e.g. `[Completion, Batch]` for
 /// a chat model that's also reachable via the asynchronous batch API). Each
 /// variant corresponds to a distinct LLM Gateway endpoint family.
+///
+/// Wire format is lowercase to match `DESIGN.md §3.1` and so `OData` filters
+/// on `info.supported_api` (per `DESIGN.md §3.3`) compare against the same
+/// strings stored in the JSONB `info` column.
 #[derive(
     Debug,
     Clone,
@@ -71,6 +94,8 @@ pub enum ProviderHealthStatus {
     serde::Deserialize,
     schemars::JsonSchema,
 )]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum SupportedApi {
     /// Synchronous chat / responses APIs.
     Completion,
@@ -95,6 +120,7 @@ pub enum SupportedApi {
     Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
 )]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum ReasoningEffort {
     None,
     Low,
@@ -116,6 +142,7 @@ pub enum ReasoningEffort {
     Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
 )]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum ServiceTier {
     Auto,
     Default,
@@ -168,10 +195,7 @@ pub struct WebSearchCapability {
 /// provider"; consumers should treat that as "best-effort, defer to the
 /// provider's documented support".
 ///
-/// In `ModelCapabilities::disabled_capabilities`, this struct is interpreted
-/// **subtractively**: `enabled = true` disables the whole capability;
-/// `supported_mime_types` lists media types disabled out of the parent
-/// capability's enabled list.
+/// The disablement counterpart is [`DisabledMediaCapability`].
 ///
 /// [1]: https://datatracker.ietf.org/doc/html/rfc6838
 #[derive(
@@ -193,6 +217,7 @@ pub struct MediaCapability {
 #[derive(
     Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
 )]
+#[non_exhaustive]
 pub struct ModelCapabilities {
     /// Supports image/vision input.
     pub vision: MediaCapability,
@@ -216,6 +241,113 @@ pub struct ModelCapabilities {
     pub code_interpreter: bool,
     /// Web search capability.
     pub web_search: WebSearchCapability,
+}
+
+/// Disablement flags for a [`MediaCapability`].
+///
+/// `disabled = true` removes the whole capability from the supported set.
+/// Otherwise `disabled_mime_types` lists MIME types subtracted from the
+/// supported list.
+#[derive(
+    Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+)]
+pub struct DisabledMediaCapability {
+    /// The whole capability is disabled.
+    pub disabled: bool,
+    /// MIME types disabled out of the parent capability's supported list.
+    /// Lower-cased RFC 6838 names.
+    pub disabled_mime_types: Vec<String>,
+}
+
+/// Disablement flags for [`ReasoningCapability`].
+#[allow(clippy::struct_excessive_bools)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
+)]
+pub struct DisabledReasoningCapability {
+    /// `reasoning_effort` parameter is disabled.
+    pub effort: bool,
+    /// Reasoning toggle is disabled.
+    pub toggle: bool,
+    /// Resume / continue reasoning is disabled.
+    pub resume: bool,
+    /// Reasoning token budget is disabled.
+    pub budget: bool,
+}
+
+/// Disablement flags for [`WebSearchCapability`].
+#[allow(clippy::struct_excessive_bools)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
+)]
+pub struct DisabledWebSearchCapability {
+    /// The whole web-search capability is disabled.
+    pub disabled: bool,
+    /// Configuring the allow-list of domains is disabled.
+    pub allowed_domains: bool,
+    /// Configuring the deny-list of domains is disabled.
+    pub excluded_domains: bool,
+}
+
+/// Subtractive view over [`ModelCapabilities`]: which capability flags are
+/// administratively blocked for this model.
+///
+/// Every boolean reads as "disabled". The struct shape mirrors
+/// [`ModelCapabilities`] one-to-one but each sub-capability uses a
+/// disabled-named twin (`DisabledMediaCapability`,
+/// `DisabledReasoningCapability`, `DisabledWebSearchCapability`).
+#[allow(clippy::struct_excessive_bools)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+)]
+#[non_exhaustive]
+pub struct DisabledCapabilities {
+    /// Image / vision input is disabled.
+    pub vision: DisabledMediaCapability,
+    /// Reasoning controls disabled.
+    pub reasoning: DisabledReasoningCapability,
+    /// Function / tool calling is disabled.
+    pub function_calling: bool,
+    /// Response-schema-bound output is disabled.
+    pub response_schema: bool,
+    /// Streaming is disabled.
+    pub streaming: bool,
+    /// File input is disabled.
+    pub file_input: DisabledMediaCapability,
+    /// Image generation is disabled.
+    pub image_generation: DisabledMediaCapability,
+    /// Audio input is disabled.
+    pub audio_input: DisabledMediaCapability,
+    /// Audio output is disabled.
+    pub audio_output: DisabledMediaCapability,
+    /// Code interpreter is disabled.
+    pub code_interpreter: bool,
+    /// Web search is disabled.
+    pub web_search: DisabledWebSearchCapability,
+}
+
+impl DisabledCapabilities {
+    /// "Nothing is disabled" — all flags `false`, all lists empty.
+    #[must_use]
+    pub fn none() -> Self {
+        Self::default()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -259,9 +391,80 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lifecycle_status_equality() {
-        assert_eq!(LifecycleStatus::Production, LifecycleStatus::Production);
-        assert_ne!(LifecycleStatus::Production, LifecycleStatus::Deprecated);
+    fn lifecycle_status_wire_format_is_lowercase() {
+        // Pinned to match DESIGN.md §3.1 — lifecycle_status is queryable via
+        // OData on the catalog list endpoint and must match the JSONB-stored
+        // string casing.
+        for (variant, expected) in [
+            (LifecycleStatus::Production, "\"production\""),
+            (LifecycleStatus::Preview, "\"preview\""),
+            (LifecycleStatus::Experimental, "\"experimental\""),
+            (LifecycleStatus::Deprecated, "\"deprecated\""),
+            (LifecycleStatus::Sunset, "\"sunset\""),
+        ] {
+            let s = serde_json::to_string(&variant).unwrap();
+            assert_eq!(s, expected, "wire format drift on {variant:?}");
+            let back: LifecycleStatus = serde_json::from_str(&s).unwrap();
+            assert_eq!(back, variant);
+        }
+    }
+
+    #[test]
+    fn approval_status_wire_format_is_lowercase() {
+        for (variant, expected) in [
+            (ApprovalStatus::Pending, "\"pending\""),
+            (ApprovalStatus::Approved, "\"approved\""),
+            (ApprovalStatus::Rejected, "\"rejected\""),
+            (ApprovalStatus::Revoked, "\"revoked\""),
+        ] {
+            let s = serde_json::to_string(&variant).unwrap();
+            assert_eq!(s, expected, "wire format drift on {variant:?}");
+            let back: ApprovalStatus = serde_json::from_str(&s).unwrap();
+            assert_eq!(back, variant);
+        }
+    }
+
+    #[test]
+    fn provider_status_wire_format_is_lowercase() {
+        for (variant, expected) in [
+            (ProviderStatus::Active, "\"active\""),
+            (ProviderStatus::Disabled, "\"disabled\""),
+        ] {
+            let s = serde_json::to_string(&variant).unwrap();
+            assert_eq!(s, expected, "wire format drift on {variant:?}");
+            let back: ProviderStatus = serde_json::from_str(&s).unwrap();
+            assert_eq!(back, variant);
+        }
+    }
+
+    #[test]
+    fn provider_health_status_wire_format_is_lowercase() {
+        for (variant, expected) in [
+            (ProviderHealthStatus::Healthy, "\"healthy\""),
+            (ProviderHealthStatus::Degraded, "\"degraded\""),
+            (ProviderHealthStatus::Unhealthy, "\"unhealthy\""),
+        ] {
+            let s = serde_json::to_string(&variant).unwrap();
+            assert_eq!(s, expected, "wire format drift on {variant:?}");
+            let back: ProviderHealthStatus = serde_json::from_str(&s).unwrap();
+            assert_eq!(back, variant);
+        }
+    }
+
+    #[test]
+    fn supported_api_wire_format_is_lowercase() {
+        // Pinned to match DESIGN.md §3.1; OData filters on
+        // `info.supported_api` (DESIGN.md §3.3) compare against these strings.
+        for (variant, expected) in [
+            (SupportedApi::Completion, "\"completion\""),
+            (SupportedApi::Embedding, "\"embedding\""),
+            (SupportedApi::Batch, "\"batch\""),
+        ] {
+            let s = serde_json::to_string(&variant).unwrap();
+            assert_eq!(s, expected, "wire format drift on {variant:?}");
+            let back: SupportedApi = serde_json::from_str(&s).unwrap();
+            assert_eq!(back, variant);
+        }
     }
 
     #[test]
@@ -294,211 +497,5 @@ mod tests {
             let back: ServiceTier = serde_json::from_str(&s).unwrap();
             assert_eq!(back, variant);
         }
-    }
-
-    #[test]
-    fn approval_status_equality() {
-        assert_eq!(ApprovalStatus::Approved, ApprovalStatus::Approved);
-        assert_ne!(ApprovalStatus::Pending, ApprovalStatus::Rejected);
-    }
-
-    #[test]
-    fn provider_status_equality() {
-        assert_eq!(ProviderStatus::Active, ProviderStatus::Active);
-        assert_ne!(ProviderStatus::Active, ProviderStatus::Disabled);
-    }
-
-    #[test]
-    fn provider_health_status_equality() {
-        assert_eq!(ProviderHealthStatus::Healthy, ProviderHealthStatus::Healthy);
-        assert_ne!(
-            ProviderHealthStatus::Healthy,
-            ProviderHealthStatus::Degraded
-        );
-    }
-
-    #[test]
-    fn supported_api_equality_and_hash() {
-        assert_eq!(SupportedApi::Completion, SupportedApi::Completion);
-        assert_ne!(SupportedApi::Completion, SupportedApi::Embedding);
-        assert_ne!(SupportedApi::Completion, SupportedApi::Batch);
-        assert_ne!(SupportedApi::Embedding, SupportedApi::Batch);
-
-        let mut set = std::collections::HashSet::new();
-        set.insert(SupportedApi::Completion);
-        set.insert(SupportedApi::Embedding);
-        set.insert(SupportedApi::Batch);
-        set.insert(SupportedApi::Completion);
-        assert_eq!(set.len(), 3);
-    }
-
-    #[test]
-    fn supported_api_batch_can_coexist() {
-        // A model that supports both synchronous chat and the batch API
-        // carries both variants in `supported_api`.
-        let api = [SupportedApi::Completion, SupportedApi::Batch];
-        assert!(api.contains(&SupportedApi::Completion));
-        assert!(api.contains(&SupportedApi::Batch));
-        assert!(!api.contains(&SupportedApi::Embedding));
-    }
-
-    #[test]
-    fn reasoning_effort_equality() {
-        assert_eq!(ReasoningEffort::High, ReasoningEffort::High);
-        assert_ne!(ReasoningEffort::Low, ReasoningEffort::XHigh);
-        assert_ne!(ReasoningEffort::None, ReasoningEffort::Medium);
-    }
-
-    #[test]
-    fn service_tier_equality() {
-        assert_eq!(ServiceTier::Auto, ServiceTier::Auto);
-        assert_eq!(ServiceTier::Default, ServiceTier::Default);
-        assert_ne!(ServiceTier::Auto, ServiceTier::Default);
-    }
-
-    #[test]
-    fn service_tier_only_two_variants() {
-        // The unified ServiceTier is intentionally narrowed to Auto | Default;
-        // provider-specific tiers (OpenAI flex/priority) live on per-provider
-        // settings as a distinct enum.
-        let auto = ServiceTier::Auto;
-        let default = ServiceTier::Default;
-        // Exhaustive match — adding a variant would force this test to fail.
-        match auto {
-            ServiceTier::Auto | ServiceTier::Default => {}
-        }
-        assert_ne!(auto, default);
-    }
-
-    #[test]
-    fn capabilities_reasoning_all_false() {
-        let r = ReasoningCapability {
-            effort: false,
-            toggle: false,
-            resume: false,
-            budget: false,
-        };
-        assert!(!r.effort);
-        assert!(!r.toggle);
-        assert!(!r.resume);
-        assert!(!r.budget);
-    }
-
-    #[test]
-    fn web_search_with_domain_support() {
-        let ws = WebSearchCapability {
-            enabled: true,
-            allowed_domains: true,
-            excluded_domains: true,
-        };
-        assert!(ws.enabled);
-        assert!(ws.allowed_domains);
-        assert!(ws.excluded_domains);
-    }
-
-    #[test]
-    fn web_search_no_domain_support() {
-        let ws = WebSearchCapability {
-            enabled: true,
-            allowed_domains: false,
-            excluded_domains: false,
-        };
-        assert!(ws.enabled);
-        assert!(!ws.allowed_domains);
-        assert!(!ws.excluded_domains);
-    }
-
-    #[test]
-    fn web_search_allow_only() {
-        // A model may support allow-lists but not deny-lists (or vice versa);
-        // the two flags are independent.
-        let ws = WebSearchCapability {
-            enabled: true,
-            allowed_domains: true,
-            excluded_domains: false,
-        };
-        assert!(ws.allowed_domains);
-        assert!(!ws.excluded_domains);
-    }
-
-    #[test]
-    fn media_capability_default_is_disabled_and_empty() {
-        let m = MediaCapability::default();
-        assert!(!m.enabled);
-        assert!(m.supported_mime_types.is_empty());
-    }
-
-    #[test]
-    fn media_capability_round_trip_serde() {
-        let m = MediaCapability {
-            enabled: true,
-            supported_mime_types: vec!["image/png".into(), "image/jpeg".into()],
-        };
-        let v = serde_json::to_value(&m).unwrap();
-        let back: MediaCapability = serde_json::from_value(v).unwrap();
-        assert_eq!(m, back);
-    }
-
-    #[test]
-    fn model_capabilities_holds_media_typed_fields() {
-        // Smoke test that the new MediaCapability fields can be set per-shape.
-        let caps = ModelCapabilities {
-            vision: MediaCapability {
-                enabled: true,
-                supported_mime_types: vec!["image/png".into()],
-            },
-            reasoning: ReasoningCapability {
-                effort: false,
-                toggle: false,
-                resume: false,
-                budget: false,
-            },
-            function_calling: true,
-            response_schema: false,
-            streaming: true,
-            file_input: MediaCapability {
-                enabled: true,
-                supported_mime_types: vec!["application/pdf".into()],
-            },
-            image_generation: MediaCapability::default(),
-            audio_input: MediaCapability {
-                enabled: true,
-                supported_mime_types: vec!["audio/mpeg".into(), "audio/wav".into()],
-            },
-            audio_output: MediaCapability::default(),
-            code_interpreter: false,
-            web_search: WebSearchCapability {
-                enabled: true,
-                allowed_domains: true,
-                excluded_domains: false,
-            },
-        };
-        assert!(caps.vision.enabled);
-        assert_eq!(caps.audio_input.supported_mime_types.len(), 2);
-        assert!(!caps.image_generation.enabled);
-        assert!(caps.image_generation.supported_mime_types.is_empty());
-    }
-
-    #[test]
-    fn context_window_completion_model() {
-        let cw = ContextWindow {
-            max_input_tokens: 128_000,
-            max_output_tokens: Some(16_384),
-            output_vector_size: None,
-        };
-        assert_eq!(cw.max_input_tokens, 128_000);
-        assert_eq!(cw.max_output_tokens, Some(16_384));
-        assert!(cw.output_vector_size.is_none());
-    }
-
-    #[test]
-    fn context_window_embedding_model() {
-        let cw = ContextWindow {
-            max_input_tokens: 8191,
-            max_output_tokens: None,
-            output_vector_size: Some(3072),
-        };
-        assert!(cw.max_output_tokens.is_none());
-        assert_eq!(cw.output_vector_size, Some(3072));
     }
 }

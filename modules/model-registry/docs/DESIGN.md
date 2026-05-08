@@ -287,7 +287,7 @@ Common (provider-independent) fields:
   - **response_latency_ms** (`Option<u32>`) — expected response latency in milliseconds
   - **tokens_per_second** (`Option<u32>`) — expected generation speed
 - **additional_info** (`HashMap<String, Value>`) — last-resort escape hatch for deployment-specific metadata; typed fields on `provider_settings` are preferred
-- **supported_api** (`Vec<SupportedApi>`) — which API kinds this model exposes (`completion`, `embedding`, `batch`). `batch` indicates the model is reachable via the asynchronous batch API (see `gts.cf.llmgw.async.batch.v1~`) and may coexist with `completion` / `embedding` on the same model. Promoted out of the old `ApiResolution` so consumers can filter on the API surface without unwrapping the variant
+- **supported_api** (`HashSet<SupportedApi>`) — which API kinds this model exposes (`completion`, `embedding`, `batch`). `batch` indicates the model is reachable via the asynchronous batch API (see `gts.cf.llmgw.async.batch.v1~`) and may coexist with `completion` / `embedding` on the same model. Promoted out of the old `ApiResolution` so consumers can filter on the API surface without unwrapping the variant
 - **provider_model_id** (`String`) — provider's model identifier, used in `canonical_id` and sent to the provider; promoted out of the old `ApiResolution` so the catalog UI / alias logic doesn't have to reach into `provider_settings`
 - **capabilities** (`ModelCapabilities`) — what the model can do
   - **vision** (`MediaCapability`) — supports image/vision input
@@ -318,7 +318,27 @@ Common (provider-independent) fields:
     - **enabled** (`bool`) — web search is available
     - **allowed_domains** (`bool`) — supports configuring an allow-list of domains to restrict search to
     - **excluded_domains** (`bool`) — supports configuring a deny-list of domains to exclude from search
-- **disabled_capabilities** (`ModelCapabilities`) — same structure as `capabilities`. For `bool` flags, `true` indicates the capability is administratively disabled. For `MediaCapability` fields, `enabled: true` disables the whole capability and `supported_mime_types` lists media types disabled subtractively (e.g. `capabilities.image_generation.supported_mime_types = ["image/png", "image/svg+xml"]` together with `disabled_capabilities.image_generation.supported_mime_types = ["image/svg+xml"]` means "the model supports both PNG and SVG, but the admin has disabled SVG"). For `WebSearchCapability`, `enabled: true` disables web search outright; `allowed_domains: true` / `excluded_domains: true` disable the corresponding configuration knobs while leaving search itself enabled
+- **disabled_capabilities** (`DisabledCapabilities`) — capabilities that are administratively disabled for this model. Distinct nominal type from `capabilities` (so the two can never be assigned interchangeably) with parallel field names whose booleans all read as **"disabled"**:
+  - **vision** (`DisabledMediaCapability`) — image/vision input disabled
+    - **disabled** (`bool`) — the whole capability is disabled
+    - **disabled_mime_types** (`Vec<String>`) — RFC 6838 names removed from the supported set
+  - **reasoning** (`DisabledReasoningCapability`)
+    - **effort** (`bool`) — the `reasoning_effort` parameter is disabled
+    - **toggle** (`bool`) — reasoning toggle is disabled
+    - **resume** (`bool`) — resume / continue reasoning is disabled
+    - **budget** (`bool`) — reasoning token budget is disabled
+  - **function_calling** (`bool`) — function/tool calling is disabled
+  - **response_schema** (`bool`) — schema-bound output is disabled
+  - **streaming** (`bool`) — streaming is disabled
+  - **file_input** (`DisabledMediaCapability`) — file input disabled (same shape as `vision`)
+  - **image_generation** (`DisabledMediaCapability`) — image generation disabled. Example: `capabilities.image_generation.supported_mime_types = ["image/png", "image/svg+xml"]` together with `disabled_capabilities.image_generation.disabled_mime_types = ["image/svg+xml"]` means "the model supports both PNG and SVG, but the admin has disabled SVG"
+  - **audio_input** (`DisabledMediaCapability`) — audio input disabled
+  - **audio_output** (`DisabledMediaCapability`) — audio output disabled
+  - **code_interpreter** (`bool`) — code interpreter is disabled
+  - **web_search** (`DisabledWebSearchCapability`)
+    - **disabled** (`bool`) — web search is disabled outright
+    - **allowed_domains** (`bool`) — configuring the allow-list is disabled
+    - **excluded_domains** (`bool`) — configuring the deny-list is disabled
 - **context_window** (`ContextWindow`) — token limits
   - **max_input_tokens** (`u32`) — maximum input tokens
   - **max_output_tokens** (`Option<u32>`) — maximum output tokens; `None` for embedding models
@@ -452,7 +472,7 @@ The trade-off comparison against the rejected alternatives — a tagged enum (`A
 
 **Resolving the typed shape at runtime.** `Model<RawProviderSettings>` is the public return shape from `ModelRegistryClientV1`. Consumers narrow to a provider by calling `Model::try_into_typed::<P>()`, which checks `info.gts_type == <P>::SCHEMA_ID` and shapes the JSON payload (via `gts::GtsDeserializeWrapper`) into the typed view. Field access on the narrowed model is flat — there is no `connection.` / `parameters.` / `overrides.` namespacing; provider-wire defaults sit on `info.provider_settings`, user-facing defaults on `info.default_parameters`, override policy as flat fields on `info`, and only `cost` remains nested under `info.provider_settings.cost`. `try_into_typed` returns `Result<Model<Q>, ProviderSchemaMismatch>`; the error carries the expected and actual schema ids on `SchemaId` mismatch, or wraps a `serde_json::Error` on `Deserialize` failure. See [`model-registry-sdk/src/models/info.rs`](../model-registry-sdk/src/models/info.rs) for the concrete `try_into_typed` implementation and per-leaf narrowing tests.
 
-> **SDK serde policy.** GTS adoption forces the SDK layer to participate in serde — the `#[struct_to_gts_schema]` macro emits `Serialize`/`Deserialize` impls (via `GtsSerialize`/`GtsDeserialize` for nested leaves) plus `schemars::JsonSchema` derives. Inner field types referenced from the GTS-decorated structs (`*Cost`, `DefaultInferenceParametersV1`, `TextFormat`, `ReasoningConfig`, `ToolChoice`, `TruncationStrategy`, `ModelCapabilities`, `ContextWindow`, …) therefore also derive `serde::Serialize + serde::Deserialize + schemars::JsonSchema`. This is an explicit exception to the project rule "no serde on contract types" — GTS by design needs serde for runtime schema reflection. REST DTO layering still applies for any HTTP-specific shapes (different headers, alternate field names, etc.) in `api/rest/dto.rs`.
+> **SDK serde policy.** GTS adoption forces the SDK layer to participate in serde — the `#[struct_to_gts_schema]` macro emits `Serialize`/`Deserialize` impls (via `GtsSerialize`/`GtsDeserialize` for nested leaves) plus `schemars::JsonSchema` derives. Inner field types referenced from the GTS-decorated structs (`*Cost`, `DefaultInferenceParametersV1`, `TextFormat`, `ReasoningConfig`, `ToolChoice`, `TruncationStrategy`, `ModelCapabilities`, `DisabledCapabilities` (and its `DisabledMediaCapability` / `DisabledReasoningCapability` / `DisabledWebSearchCapability` sub-types), `ContextWindow`, …) therefore also derive `serde::Serialize + serde::Deserialize + schemars::JsonSchema`. This is an explicit exception to the project rule "no serde on contract types" — GTS by design needs serde for runtime schema reflection. REST DTO layering still applies for any HTTP-specific shapes (different headers, alternate field names, etc.) in `api/rest/dto.rs`.
 
 #### Invariants
 

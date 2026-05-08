@@ -8,7 +8,8 @@
 use uuid::Uuid;
 
 /// Errors returned by Model Registry SDK operations.
-#[derive(Debug, Clone, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ModelRegistryError {
     #[error("model not found: {canonical_id}")]
     ModelNotFound { canonical_id: String },
@@ -46,8 +47,15 @@ pub enum ModelRegistryError {
     #[error("discovery failed for provider {provider_id}: {detail}")]
     DiscoveryFailed { provider_id: Uuid, detail: String },
 
-    #[error("internal error")]
-    Internal,
+    /// Catch-all for unexpected failures (DB/cache/OAGW/etc.). `detail` is a
+    /// short human-readable summary; `source` carries the underlying error
+    /// when available, accessible via `std::error::Error::source`.
+    #[error("internal error: {detail}")]
+    Internal {
+        detail: String,
+        #[source]
+        source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+    },
 }
 
 impl ModelRegistryError {
@@ -126,8 +134,50 @@ impl ModelRegistryError {
         }
     }
 
+    /// Construct an `Internal` error with a free-form detail string and no
+    /// source chain.
     #[must_use]
-    pub fn internal() -> Self {
-        Self::Internal
+    pub fn internal(detail: impl Into<String>) -> Self {
+        Self::Internal {
+            detail: detail.into(),
+            source: None,
+        }
+    }
+
+    /// Construct an `Internal` error wrapping an upstream error as the
+    /// `#[source]` of this variant.
+    pub fn internal_from(
+        detail: impl Into<String>,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        Self::Internal {
+            detail: detail.into(),
+            source: Some(Box::new(source)),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn internal_without_source_has_none() {
+        let err = ModelRegistryError::internal("db pool exhausted");
+        assert_eq!(err.to_string(), "internal error: db pool exhausted");
+        assert!(std::error::Error::source(&err).is_none());
+    }
+
+    #[test]
+    fn internal_from_preserves_source_chain() {
+        let upstream = std::io::Error::new(std::io::ErrorKind::ConnectionReset, "rst");
+        let err = ModelRegistryError::internal_from("oagw call failed", upstream);
+        assert_eq!(err.to_string(), "internal error: oagw call failed");
+        let source = std::error::Error::source(&err).expect("source preserved");
+        assert!(source.to_string().contains("rst"));
     }
 }

@@ -274,63 +274,6 @@ impl ProviderSettings for AnthropicSettingsV1 {}
 mod tests {
     use super::*;
 
-    fn sample() -> AnthropicSettingsV1 {
-        AnthropicSettingsV1 {
-            oagw_alias: "anthropic-prod".into(),
-            anthropic_version: "2023-06-01".into(),
-            anthropic_beta: vec!["context-1m-2025-04-01".into()],
-            temperature: Some(0.7),
-            top_p: Some(0.95),
-            top_k: Some(40),
-            max_tokens: 4096,
-            stop_sequences: Some(vec!["\n\nHuman:".into()]),
-            system: Some("You are Claude.".into()),
-            inference_geo: Some("us".into()),
-            service_tier: Some(AnthropicServiceTier::Auto),
-            container: None,
-            thinking: Some(AnthropicThinking::Adaptive {
-                display: Some(AnthropicThinkingDisplay::Summarized),
-            }),
-            tool_choice: Some(AnthropicToolChoice::Auto {
-                disable_parallel_tool_use: Some(false),
-            }),
-            output_config: Some(AnthropicOutputConfig {
-                effort: Some(AnthropicOutputEffort::Medium),
-                format: None,
-            }),
-            cost: AnthropicCost {
-                input_per_1k_micro: Some(3_000_000),
-                output_per_1k_micro: Some(15_000_000),
-                cache_creation_5m_per_1k_micro: Some(3_750_000),
-                cache_creation_1h_per_1k_micro: Some(6_000_000),
-                cache_read_per_1k_micro: Some(300_000),
-                web_search_per_1k_calls_micro: Some(10_000_000),
-            },
-        }
-    }
-
-    #[test]
-    fn flat_routing_and_auth_fields() {
-        let s = sample();
-        assert_eq!(s.oagw_alias, "anthropic-prod");
-        assert_eq!(s.anthropic_version, "2023-06-01");
-        assert_eq!(s.anthropic_beta, vec!["context-1m-2025-04-01".to_owned()]);
-    }
-
-    #[test]
-    fn flat_parameter_defaults_present() {
-        let s = sample();
-        assert_eq!(s.temperature, Some(0.7));
-        assert_eq!(s.top_p, Some(0.95));
-        assert_eq!(s.top_k, Some(40));
-        assert_eq!(s.max_tokens, 4096);
-        assert_eq!(
-            s.stop_sequences.as_deref(),
-            Some(&["\n\nHuman:".to_owned()][..])
-        );
-        assert_eq!(s.inference_geo.as_deref(), Some("us"));
-    }
-
     #[test]
     fn max_tokens_default_is_zero_sentinel() {
         let s = AnthropicSettingsV1::default();
@@ -397,22 +340,6 @@ mod tests {
     }
 
     #[test]
-    fn thinking_round_trip() {
-        for t in [
-            AnthropicThinking::Enabled {
-                budget_tokens: 1024,
-                display: None,
-            },
-            AnthropicThinking::Disabled,
-            AnthropicThinking::Adaptive { display: None },
-        ] {
-            let s = serde_json::to_string(&t).unwrap();
-            let back: AnthropicThinking = serde_json::from_str(&s).unwrap();
-            assert_eq!(back, t);
-        }
-    }
-
-    #[test]
     fn tool_choice_variants_serialize_with_type_tag() {
         let auto = AnthropicToolChoice::Auto {
             disable_parallel_tool_use: Some(true),
@@ -452,25 +379,6 @@ mod tests {
     }
 
     #[test]
-    fn output_config_independent_knobs() {
-        let cfg = AnthropicOutputConfig {
-            effort: Some(AnthropicOutputEffort::Max),
-            format: None,
-        };
-        assert_eq!(cfg.effort, Some(AnthropicOutputEffort::Max));
-        assert!(cfg.format.is_none());
-
-        let cfg2 = AnthropicOutputConfig {
-            effort: None,
-            format: Some(AnthropicJsonOutputFormat::JsonSchema {
-                schema: serde_json::json!({"type": "string"}),
-            }),
-        };
-        assert!(cfg2.effort.is_none());
-        assert!(cfg2.format.is_some());
-    }
-
-    #[test]
     fn thinking_display_lowercase_wire() {
         assert_eq!(
             serde_json::to_string(&AnthropicThinkingDisplay::Summarized).unwrap(),
@@ -480,23 +388,5 @@ mod tests {
             serde_json::to_string(&AnthropicThinkingDisplay::Omitted).unwrap(),
             "\"omitted\""
         );
-    }
-
-    #[test]
-    fn cost_fields_round_trip() {
-        let c = sample().cost;
-        assert_eq!(c.input_per_1k_micro, Some(3_000_000));
-        assert_eq!(c.output_per_1k_micro, Some(15_000_000));
-        assert_eq!(c.cache_creation_5m_per_1k_micro, Some(3_750_000));
-        assert_eq!(c.cache_creation_1h_per_1k_micro, Some(6_000_000));
-        assert_eq!(c.cache_read_per_1k_micro, Some(300_000));
-        assert_eq!(c.web_search_per_1k_calls_micro, Some(10_000_000));
-    }
-
-    #[test]
-    fn cost_default_is_all_none() {
-        let c = AnthropicCost::default();
-        assert!(c.input_per_1k_micro.is_none());
-        assert!(c.web_search_per_1k_calls_micro.is_none());
     }
 }

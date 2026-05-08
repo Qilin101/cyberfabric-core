@@ -46,16 +46,17 @@ pub trait ModelRegistryClientV1: Send + Sync {
     /// List models available to the caller's tenant with `OData` filtering.
     ///
     /// Supports `$filter` on: `lifecycle_status`, `approval_status`,
-    /// `info.provider_settings.kind`, `info.supported_api`,
-    /// `info.provider_model_id`, `info.capabilities.*` (e.g. `vision`,
-    /// `function_calling`, `streaming`, `reasoning.effort`), `info.vendor`,
-    /// `info.family`. Per-provider parameter and cost fields are not
-    /// filterable in v1 — see `docs/DESIGN.md` §3.3.
+    /// `info.gts_type`, `info.supported_api`, `info.provider_model_id`,
+    /// `info.capabilities.*` (e.g. `vision`, `function_calling`, `streaming`,
+    /// `reasoning.effort`), `info.vendor`, `info.family`. Per-provider
+    /// parameter and cost fields are not filterable in v1 — see
+    /// `docs/DESIGN.md` §3.3.
     ///
-    /// Returns `Model<AnyProviderSettings>`. Consumers narrowed to a
-    /// specific provider (e.g. when they've already filtered on
-    /// `info.provider_settings.kind eq 'openai'`) can call
-    /// [`Model::try_into_typed`] on each result.
+    /// Returns `Model<RawProviderSettings>` (the default `P` for
+    /// heterogeneous lists). Consumers narrowed to a specific provider (e.g.
+    /// when they've already filtered on
+    /// `info.gts_type eq 'gts.cf.genai.model.info.v1~cf.genai._.openai.v1~'`)
+    /// can call [`Model::try_into_typed`] on each result.
     #[cfg(feature = "odata")]
     async fn list_tenant_models(
         &self,

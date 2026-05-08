@@ -45,14 +45,15 @@ pub mod request;
 // Re-exports — the public surface of `model_registry_sdk::models::*`.
 
 pub use common::{
-    ApprovalStatus, ContextWindow, LifecycleStatus, MediaCapability, ModelCapabilities,
-    ModelPerformance, ProviderHealthStatus, ProviderStatus, ReasoningCapability, ReasoningEffort,
-    ServiceTier, SupportedApi, WebSearchCapability,
+    ApprovalStatus, ContextWindow, DisabledCapabilities, DisabledMediaCapability,
+    DisabledReasoningCapability, DisabledWebSearchCapability, LifecycleStatus, MediaCapability,
+    ModelCapabilities, ModelPerformance, ProviderHealthStatus, ProviderStatus, ReasoningCapability,
+    ReasoningEffort, ServiceTier, SupportedApi, WebSearchCapability,
 };
 
 pub use default_parameters::{
-    DefaultInferenceParametersV1, ReasoningConfig, ReasoningSummary, TextFormat, TextFormatKind,
-    TextVerbosity, ToolChoice, TruncationStrategy,
+    DefaultInferenceParametersV1, NamedToolChoice, ReasoningConfig, ReasoningSummary, TextFormat,
+    TextFormatKind, TextVerbosity, ToolChoice, ToolChoiceMode, TruncationStrategy,
 };
 
 pub use provider_settings::{ProviderSchemaMismatch, ProviderSettings, RawProviderSettings};

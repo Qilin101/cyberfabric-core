@@ -25,6 +25,7 @@ use crate::models::{
 /// settings ride as opaque JSON until the consumer narrows via
 /// [`Model::try_into_typed`], which reads `info.gts_type` for dispatch.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Model<P: gts::GtsSchema = RawProviderSettings> {
     pub id: Uuid,
     /// Format: `{provider_slug}::{provider_model_id}`.
@@ -115,6 +116,7 @@ impl Model<RawProviderSettings> {
 
 /// A configured AI provider instance for a tenant.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Provider {
     pub id: Uuid,
     /// Human-readable identifier (immutable after creation).
@@ -140,6 +142,7 @@ pub struct Provider {
 /// Provider discovery health status (P3 —
 /// `cpt-cf-model-registry-fr-health-monitoring`).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct ProviderHealth {
     pub provider_id: Uuid,
     pub status: ProviderHealthStatus,
@@ -166,6 +169,7 @@ pub struct Alias {
 
 /// Result of a model discovery run against a provider.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct DiscoveryResult {
     pub provider_id: Uuid,
     pub models_discovered: u32,
@@ -181,13 +185,14 @@ pub struct DiscoveryResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     use gts::GtsSchema;
 
     use crate::models::{
-        ContextWindow, DefaultInferenceParametersV1, MediaCapability, ModelCapabilities,
-        ModelPerformance, OpenAiSettingsV1, ReasoningCapability, SupportedApi, WebSearchCapability,
+        ContextWindow, DefaultInferenceParametersV1, DisabledCapabilities, MediaCapability,
+        ModelCapabilities, ModelPerformance, OpenAiSettingsV1, ReasoningCapability, SupportedApi,
+        WebSearchCapability,
     };
 
     fn empty_capabilities() -> ModelCapabilities {
@@ -243,10 +248,10 @@ mod tests {
                     tokens_per_second: None,
                 },
                 additional_info: HashMap::new(),
-                supported_api: vec![SupportedApi::Completion],
+                supported_api: HashSet::from([SupportedApi::Completion]),
                 provider_model_id: "gpt-4o".into(),
                 capabilities: empty_capabilities(),
-                disabled_capabilities: empty_capabilities(),
+                disabled_capabilities: DisabledCapabilities::none(),
                 context_window: ContextWindow {
                     max_input_tokens: 8192,
                     max_output_tokens: Some(4096),
@@ -266,7 +271,7 @@ mod tests {
         serde_json::json!({
             // Connection / auth
             "oagw_alias": "openai-prod",
-            "endpoint_kind": "ChatCompletions",
+            "endpoint_kind": "chat_completions",
             "organization": null,
             "project": null,
             // Cross-endpoint inference defaults
@@ -401,18 +406,5 @@ mod tests {
         assert_eq!(serialized, serde_json::json!({ "tier": "fast" }));
         let round_tripped: RawProviderSettings = serde_json::from_value(serialized).unwrap();
         assert_eq!(round_tripped, raw);
-    }
-
-    #[test]
-    fn discovery_result_fields() {
-        let result = DiscoveryResult {
-            provider_id: Uuid::nil(),
-            models_discovered: 10,
-            models_added: 3,
-            models_updated: 5,
-            models_deprecated: 2,
-        };
-        assert_eq!(result.models_discovered, 10);
-        assert_eq!(result.models_added, 3);
     }
 }

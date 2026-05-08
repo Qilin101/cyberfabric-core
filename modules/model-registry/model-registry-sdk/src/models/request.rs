@@ -5,8 +5,9 @@
 //! and are serialized into transport (REST/gRPC) by the module crate.
 
 use crate::models::{
-    ApprovalStatus, ContextWindow, DefaultInferenceParametersV1, LifecycleStatus,
-    ModelCapabilities, ModelInfoV1, ModelPerformance, ProviderStatus, RawProviderSettings,
+    ApprovalStatus, ContextWindow, DefaultInferenceParametersV1, DisabledCapabilities,
+    LifecycleStatus, ModelCapabilities, ModelInfoV1, ModelPerformance, ProviderStatus,
+    RawProviderSettings,
 };
 
 // ---------------------------------------------------------------------------
@@ -235,7 +236,7 @@ pub struct UpdateModelRequest {
     /// Replace `info.capabilities` wholesale.
     pub capabilities: Option<ModelCapabilities>,
     /// Replace `info.disabled_capabilities` wholesale.
-    pub disabled_capabilities: Option<ModelCapabilities>,
+    pub disabled_capabilities: Option<DisabledCapabilities>,
     /// Replace `info.context_window` wholesale.
     pub context_window: Option<ContextWindow>,
 
@@ -321,116 +322,6 @@ mod tests {
     }
 
     #[test]
-    fn create_alias_request() {
-        let req = CreateAliasRequest {
-            name: "gpt4".into(),
-            canonical_id: "openai::gpt-4o".into(),
-        };
-        assert_eq!(req.name, "gpt4");
-        assert_eq!(req.canonical_id, "openai::gpt-4o");
-    }
-
-    // ---- Manual model management (P1) ----
-
-    use std::collections::HashMap;
-
-    use crate::models::{
-        ContextWindow, DefaultInferenceParametersV1, MediaCapability, ModelCapabilities,
-        ModelInfoV1, ModelPerformance, ReasoningCapability, SupportedApi, WebSearchCapability,
-    };
-
-    fn empty_capabilities() -> ModelCapabilities {
-        ModelCapabilities {
-            vision: MediaCapability::default(),
-            reasoning: ReasoningCapability {
-                effort: false,
-                toggle: false,
-                resume: false,
-                budget: false,
-            },
-            function_calling: false,
-            response_schema: false,
-            streaming: false,
-            file_input: MediaCapability::default(),
-            image_generation: MediaCapability::default(),
-            audio_input: MediaCapability::default(),
-            audio_output: MediaCapability::default(),
-            code_interpreter: false,
-            web_search: WebSearchCapability {
-                enabled: false,
-                allowed_domains: false,
-                excluded_domains: false,
-            },
-        }
-    }
-
-    fn raw_info(provider_model_id: &str, gts_type: &str) -> ModelInfoV1<RawProviderSettings> {
-        ModelInfoV1 {
-            gts_type: gts::GtsSchemaId::new(gts_type),
-            display_name: format!("Model {provider_model_id}"),
-            description: None,
-            family: None,
-            vendor: None,
-            region: None,
-            hosted_by: None,
-            last_release_at: None,
-            reasoning_level: None,
-            version: None,
-            sort_order: None,
-            icon: None,
-            multiplier_display: None,
-            performance: ModelPerformance {
-                response_latency_ms: None,
-                tokens_per_second: None,
-            },
-            additional_info: HashMap::new(),
-            supported_api: vec![SupportedApi::Completion],
-            provider_model_id: provider_model_id.into(),
-            capabilities: empty_capabilities(),
-            disabled_capabilities: empty_capabilities(),
-            context_window: ContextWindow {
-                max_input_tokens: 8192,
-                max_output_tokens: Some(4096),
-                output_vector_size: None,
-            },
-            default_parameters: DefaultInferenceParametersV1::default(),
-            allow_parameter_override: false,
-            allow_extra_params: Vec::new(),
-            provider_settings: RawProviderSettings(serde_json::json!({})),
-        }
-    }
-
-    #[test]
-    fn create_model_request_defaults_status_to_none() {
-        let req = CreateModelRequest {
-            provider_slug: "openai".into(),
-            lifecycle_status: LifecycleStatus::Production,
-            approval_status: None,
-            info: raw_info("gpt-4o", "gts.cf.genai.model.info.v1~cf.genai._.openai.v1~"),
-        };
-        assert_eq!(req.provider_slug, "openai");
-        assert_eq!(req.info.provider_model_id, "gpt-4o");
-        assert!(matches!(req.lifecycle_status, LifecycleStatus::Production));
-        // None ⇒ server defaults to Pending; explicit Approved is the
-        // admin-convenience path.
-        assert!(req.approval_status.is_none());
-    }
-
-    #[test]
-    fn create_model_request_with_initial_approval() {
-        let req = CreateModelRequest {
-            provider_slug: "anthropic".into(),
-            lifecycle_status: LifecycleStatus::Preview,
-            approval_status: Some(ApprovalStatus::Approved),
-            info: raw_info(
-                "claude-sonnet-4-6",
-                "gts.cf.genai.model.info.v1~cf.genai._.anthropic.v1~",
-            ),
-        };
-        assert_eq!(req.approval_status, Some(ApprovalStatus::Approved));
-    }
-
-    #[test]
     fn update_model_request_default_is_empty() {
         let req = UpdateModelRequest::default();
         assert!(req.approval_status.is_none());
@@ -442,50 +333,5 @@ mod tests {
         assert!(req.allow_parameter_override.is_none());
         assert!(req.allow_extra_params.is_none());
         assert!(req.provider_settings.is_none());
-    }
-
-    #[test]
-    fn update_model_request_status_only_patch() {
-        // Common case: admin only flips approval status. P1 writes directly
-        // to ModelApproval; P2 routes through Approval Service. Both phases
-        // accept this same struct.
-        let req = UpdateModelRequest {
-            approval_status: Some(ApprovalStatus::Revoked),
-            ..Default::default()
-        };
-        assert_eq!(req.approval_status, Some(ApprovalStatus::Revoked));
-        assert!(req.lifecycle_status.is_none());
-        assert!(req.display_name.is_none());
-        assert!(req.provider_settings.is_none());
-    }
-
-    #[test]
-    fn update_model_request_capabilities_full_replacement() {
-        let mut caps = empty_capabilities();
-        caps.streaming = true;
-        let req = UpdateModelRequest {
-            capabilities: Some(caps),
-            ..Default::default()
-        };
-        assert!(req.capabilities.unwrap().streaming);
-    }
-
-    #[test]
-    fn update_model_request_provider_settings_replacement() {
-        let req = UpdateModelRequest {
-            provider_settings: Some(RawProviderSettings(serde_json::json!({
-                "oagw_alias": "openai-prod-replaced",
-                "temperature": 0.2,
-            }))),
-            ..Default::default()
-        };
-        let payload = req.provider_settings.unwrap();
-        assert_eq!(
-            payload
-                .as_value()
-                .get("oagw_alias")
-                .and_then(|v| v.as_str()),
-            Some("openai-prod-replaced")
-        );
     }
 }

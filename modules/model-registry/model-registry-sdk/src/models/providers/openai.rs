@@ -33,9 +33,14 @@ use crate::models::{
 // ---------------------------------------------------------------------------
 
 /// Which `OpenAI` surface this connection points at.
+///
+/// Wire format is `snake_case`. The value is stored verbatim in the JSONB
+/// provider-settings payload, so this normalisation also keeps `OData`
+/// filters and stored values consistent.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
 )]
+#[serde(rename_all = "snake_case")]
 pub enum OpenAiEndpoint {
     /// Legacy `/v1/chat/completions`.
     ChatCompletions,
@@ -57,9 +62,12 @@ pub enum OpenAiEndpoint {
 /// Scale | Priority` variants are `OpenAI`-only and ride alongside on this
 /// struct. `Scale` was added by `OpenAI` alongside their pricing-tier rollout
 /// and is distinct from `Priority`.
+///
+/// Wire format is lowercase to match the `OpenAI` Chat / Responses APIs.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
 )]
+#[serde(rename_all = "lowercase")]
 pub enum OpenAiServiceTier {
     Auto,
     Default,
@@ -83,9 +91,13 @@ pub enum OpenAiServiceTier {
 /// and `Low` and indicates "spend a tiny amount of reasoning effort, then
 /// answer". Keeping the OpenAI-specific level here means future
 /// OpenAI-only additions don't perturb the shared enum.
+///
+/// Wire format is lowercase to match the `OpenAI` `reasoning.effort`
+/// parameter.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
 )]
+#[serde(rename_all = "lowercase")]
 pub enum OpenAiReasoningEffort {
     None,
     Minimal,
@@ -102,13 +114,19 @@ pub enum OpenAiReasoningEffort {
 /// `OpenAI` prompt-cache retention policy. `TwentyFourHours` enables extended
 /// prompt caching, which keeps cached prefixes alive for up to 24 hours
 /// instead of `OpenAI`'s default in-memory window.
+///
+/// Wire format matches the literals `OpenAI` accepts on the
+/// `prompt_cache_retention` parameter. One of the literals can't be
+/// expressed via `rename_all`, so wire spellings are pinned per variant.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
 )]
 pub enum OpenAiPromptCacheRetention {
     /// Default in-memory window (cleared frequently).
+    #[serde(rename = "in_memory")]
     InMemory,
     /// Extended caching — prefixes kept alive for up to 24 hours.
+    #[serde(rename = "24h")]
     TwentyFourHours,
 }
 
@@ -117,9 +135,13 @@ pub enum OpenAiPromptCacheRetention {
 // ---------------------------------------------------------------------------
 
 /// Wire format used to return embedding vectors.
+///
+/// Wire format is lowercase to match the `OpenAI` Embeddings API
+/// `encoding_format` parameter.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
 )]
+#[serde(rename_all = "lowercase")]
 pub enum OpenAiEmbeddingEncoding {
     /// JSON array of floats (default).
     Float,
@@ -132,14 +154,18 @@ pub enum OpenAiEmbeddingEncoding {
 // ---------------------------------------------------------------------------
 
 /// `response_format` shape supported by Chat Completions / Responses.
+///
+/// Wire format is the externally-tagged `OpenAI` shape — each variant emits
+/// a `{ "type": ... }` object discriminated by the variant name.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum OpenAiResponseFormat {
     /// Plain text — provider default.
     Text,
     /// `{ "type": "json_object" }` — JSON-mode.
     JsonObject,
     /// `{ "type": "json_schema", "json_schema": {...} }` — schema-bound output.
-    JsonSchema(serde_json::Value),
+    JsonSchema { json_schema: serde_json::Value },
 }
 
 // ---------------------------------------------------------------------------
@@ -302,213 +328,109 @@ impl ProviderSettings for OpenAiSettingsV1 {}
 mod tests {
     use super::*;
 
-    fn sample() -> OpenAiSettingsV1 {
-        OpenAiSettingsV1 {
-            oagw_alias: "openai-prod".into(),
-            endpoint_kind: OpenAiEndpoint::ChatCompletions,
-            organization: Some("org-abc".into()),
-            project: Some("proj-xyz".into()),
-            temperature: Some(0.7),
-            top_p: Some(1.0),
-            presence_penalty: None,
-            frequency_penalty: None,
-            top_logprobs: Some(5),
-            service_tier: Some(OpenAiServiceTier::Default),
-            prompt_cache_retention: Some(OpenAiPromptCacheRetention::InMemory),
-            reasoning_effort: Some(OpenAiReasoningEffort::Medium),
-            reasoning_summary: Some(ReasoningSummary::Auto),
-            verbosity: Some(TextVerbosity::Medium),
-            parallel_tool_calls: None,
-            store: None,
-            response_format: Some(OpenAiResponseFormat::JsonObject),
-            max_tokens: Some(4096),
-            max_completion_tokens: None,
-            n: Some(1),
-            stop: None,
-            seed: None,
-            logprobs: Some(false),
-            max_output_tokens: None,
-            max_tool_calls: None,
-            truncation: None,
-            encoding_format: None,
-            dimensions: None,
-            cost: OpenAiCost {
-                input_per_1k_micro: Some(2_500_000),
-                cached_input_per_1k_micro: Some(1_250_000),
-                output_per_1k_micro: Some(10_000_000),
-                long_context_input_per_1k_micro: None,
-                long_context_cached_input_per_1k_micro: None,
-                long_context_output_per_1k_micro: None,
-                long_context_threshold_tokens: None,
-                web_search_per_1k_calls_micro: None,
-                file_search_per_1k_calls_micro: None,
-            },
+    // The tests below pin every provider-wire enum to the strings OpenAI
+    // accepts. The gateway forwards these literals after merging, so any
+    // drift would surface as a parameter-validation error from OpenAI in
+    // production. Round-trip cases additionally guard against future
+    // refactors that drop the serde directive.
+
+    #[test]
+    fn openai_service_tier_wire_format_is_lowercase() {
+        for (variant, expected) in [
+            (OpenAiServiceTier::Auto, "\"auto\""),
+            (OpenAiServiceTier::Default, "\"default\""),
+            (OpenAiServiceTier::Flex, "\"flex\""),
+            (OpenAiServiceTier::Scale, "\"scale\""),
+            (OpenAiServiceTier::Priority, "\"priority\""),
+        ] {
+            let s = serde_json::to_string(&variant).unwrap();
+            assert_eq!(s, expected, "wire format drift on {variant:?}");
+            let back: OpenAiServiceTier = serde_json::from_str(&s).unwrap();
+            assert_eq!(back, variant);
         }
     }
 
     #[test]
-    fn flat_routing_and_org_fields() {
-        let s = sample();
-        assert_eq!(s.oagw_alias, "openai-prod");
-        assert_eq!(s.endpoint_kind, OpenAiEndpoint::ChatCompletions);
-        assert_eq!(s.organization.as_deref(), Some("org-abc"));
-        assert_eq!(s.project.as_deref(), Some("proj-xyz"));
+    fn openai_reasoning_effort_wire_format_is_lowercase() {
+        for (variant, expected) in [
+            (OpenAiReasoningEffort::None, "\"none\""),
+            (OpenAiReasoningEffort::Minimal, "\"minimal\""),
+            (OpenAiReasoningEffort::Low, "\"low\""),
+            (OpenAiReasoningEffort::Medium, "\"medium\""),
+            (OpenAiReasoningEffort::High, "\"high\""),
+            (OpenAiReasoningEffort::XHigh, "\"xhigh\""),
+        ] {
+            let s = serde_json::to_string(&variant).unwrap();
+            assert_eq!(s, expected, "wire format drift on {variant:?}");
+            let back: OpenAiReasoningEffort = serde_json::from_str(&s).unwrap();
+            assert_eq!(back, variant);
+        }
     }
 
     #[test]
-    fn flat_parameter_defaults_present() {
-        let s = sample();
-        assert_eq!(s.temperature, Some(0.7));
-        assert_eq!(s.top_p, Some(1.0));
-        assert_eq!(s.max_tokens, Some(4096));
-        assert!(s.max_completion_tokens.is_none());
-        assert!(s.reasoning_effort.is_some());
-        assert_eq!(s.top_logprobs, Some(5));
-        assert_eq!(s.n, Some(1));
-        assert_eq!(s.logprobs, Some(false));
+    fn openai_prompt_cache_retention_wire_format() {
+        // `"24h"` is a numeric literal that can't come from `rename_all`, so
+        // it's pinned per variant.
+        for (variant, expected) in [
+            (OpenAiPromptCacheRetention::InMemory, "\"in_memory\""),
+            (OpenAiPromptCacheRetention::TwentyFourHours, "\"24h\""),
+        ] {
+            let s = serde_json::to_string(&variant).unwrap();
+            assert_eq!(s, expected, "wire format drift on {variant:?}");
+            let back: OpenAiPromptCacheRetention = serde_json::from_str(&s).unwrap();
+            assert_eq!(back, variant);
+        }
     }
 
     #[test]
-    fn response_format_variants() {
-        let text = OpenAiResponseFormat::Text;
-        let json_obj = OpenAiResponseFormat::JsonObject;
-        let json_schema = OpenAiResponseFormat::JsonSchema(serde_json::json!({"type": "object"}));
-        assert_ne!(text, json_obj);
-        assert_ne!(json_obj, json_schema);
+    fn openai_embedding_encoding_wire_format_is_lowercase() {
+        for (variant, expected) in [
+            (OpenAiEmbeddingEncoding::Float, "\"float\""),
+            (OpenAiEmbeddingEncoding::Base64, "\"base64\""),
+        ] {
+            let s = serde_json::to_string(&variant).unwrap();
+            assert_eq!(s, expected, "wire format drift on {variant:?}");
+            let back: OpenAiEmbeddingEncoding = serde_json::from_str(&s).unwrap();
+            assert_eq!(back, variant);
+        }
     }
 
     #[test]
-    fn service_tier_has_five_variants() {
-        // Provider-wire tier carries all five OpenAI variants; the unified
-        // ServiceTier on default_parameters narrows to two.
-        let tiers = [
-            OpenAiServiceTier::Auto,
-            OpenAiServiceTier::Default,
-            OpenAiServiceTier::Flex,
-            OpenAiServiceTier::Scale,
-            OpenAiServiceTier::Priority,
-        ];
-        assert_eq!(tiers.len(), 5);
-        // `Scale` and `Priority` are distinct.
-        assert_ne!(tiers[3], tiers[4]);
+    fn openai_endpoint_wire_format_is_snake_case() {
+        for (variant, expected) in [
+            (OpenAiEndpoint::ChatCompletions, "\"chat_completions\""),
+            (OpenAiEndpoint::Responses, "\"responses\""),
+            (OpenAiEndpoint::Embeddings, "\"embeddings\""),
+        ] {
+            let s = serde_json::to_string(&variant).unwrap();
+            assert_eq!(s, expected, "wire format drift on {variant:?}");
+            let back: OpenAiEndpoint = serde_json::from_str(&s).unwrap();
+            assert_eq!(back, variant);
+        }
     }
 
     #[test]
-    fn prompt_cache_retention_two_variants() {
-        let in_mem = OpenAiPromptCacheRetention::InMemory;
-        let extended = OpenAiPromptCacheRetention::TwentyFourHours;
-        assert_ne!(in_mem, extended);
-    }
-
-    #[test]
-    fn embedding_encoding_variants() {
-        let f = OpenAiEmbeddingEncoding::Float;
-        let b = OpenAiEmbeddingEncoding::Base64;
-        assert_ne!(f, b);
-    }
-
-    #[test]
-    fn cost_micro_credits_standard_tier() {
-        let c = sample().cost;
-        assert_eq!(c.input_per_1k_micro, Some(2_500_000));
-        assert_eq!(c.cached_input_per_1k_micro, Some(1_250_000));
-        assert_eq!(c.output_per_1k_micro, Some(10_000_000));
-    }
-
-    #[test]
-    fn cost_long_context_tier_optional() {
-        let mut s = sample();
-        s.cost.long_context_input_per_1k_micro = Some(5_000_000);
-        s.cost.long_context_cached_input_per_1k_micro = Some(2_500_000);
-        s.cost.long_context_output_per_1k_micro = Some(20_000_000);
-        s.cost.long_context_threshold_tokens = Some(128_000);
-        // Long-context rates are higher than standard rates above the
-        // boundary (128K input tokens here).
-        assert!(
-            s.cost.long_context_input_per_1k_micro.unwrap() > s.cost.input_per_1k_micro.unwrap()
+    fn openai_response_format_is_externally_tagged() {
+        assert_eq!(
+            serde_json::to_value(OpenAiResponseFormat::Text).unwrap(),
+            serde_json::json!({ "type": "text" }),
         );
-        assert_eq!(s.cost.long_context_threshold_tokens, Some(128_000));
-    }
-
-    #[test]
-    fn cost_built_in_tool_rates() {
-        let mut s = sample();
-        // Per OpenAI's published prices: web_search and file_search are
-        // billed per call (not per token). Stored as micro-credits per 1K
-        // calls.
-        s.cost.web_search_per_1k_calls_micro = Some(25_000_000); // $25 / 1K
-        s.cost.file_search_per_1k_calls_micro = Some(2_500_000); // $2.50 / 1K
-        assert!(
-            s.cost.web_search_per_1k_calls_micro.unwrap()
-                > s.cost.file_search_per_1k_calls_micro.unwrap()
+        assert_eq!(
+            serde_json::to_value(OpenAiResponseFormat::JsonObject).unwrap(),
+            serde_json::json!({ "type": "json_object" }),
         );
-    }
+        let schema = serde_json::json!({ "name": "Person", "schema": { "type": "object" } });
+        assert_eq!(
+            serde_json::to_value(OpenAiResponseFormat::JsonSchema {
+                json_schema: schema.clone(),
+            })
+            .unwrap(),
+            serde_json::json!({ "type": "json_schema", "json_schema": schema }),
+        );
 
-    #[test]
-    fn responses_api_uses_max_completion_tokens() {
-        let s = OpenAiSettingsV1 {
-            endpoint_kind: OpenAiEndpoint::Responses,
-            reasoning_summary: Some(ReasoningSummary::Auto),
-            max_completion_tokens: Some(8192),
-            ..sample()
-        };
-        assert_eq!(s.endpoint_kind, OpenAiEndpoint::Responses);
-        assert_eq!(s.max_completion_tokens, Some(8192));
-        assert_eq!(s.reasoning_summary, Some(ReasoningSummary::Auto));
-    }
-
-    #[test]
-    fn responses_api_specific_fields() {
-        let s = OpenAiSettingsV1 {
-            endpoint_kind: OpenAiEndpoint::Responses,
-            max_output_tokens: Some(2048),
-            max_tool_calls: Some(8),
-            truncation: Some(TruncationStrategy::Auto),
-            ..sample()
-        };
-        assert_eq!(s.max_output_tokens, Some(2048));
-        assert_eq!(s.max_tool_calls, Some(8));
-        assert_eq!(s.truncation, Some(TruncationStrategy::Auto));
-    }
-
-    #[test]
-    fn embeddings_api_specific_fields() {
-        let s = OpenAiSettingsV1 {
-            endpoint_kind: OpenAiEndpoint::Embeddings,
-            encoding_format: Some(OpenAiEmbeddingEncoding::Base64),
-            dimensions: Some(1536),
-            ..sample()
-        };
-        assert_eq!(s.endpoint_kind, OpenAiEndpoint::Embeddings);
-        assert_eq!(s.encoding_format, Some(OpenAiEmbeddingEncoding::Base64));
-        assert_eq!(s.dimensions, Some(1536));
-    }
-
-    #[test]
-    fn reasoning_effort_uses_openai_specific_enum() {
-        // OpenAi reasoning_effort is the six-variant `OpenAiReasoningEffort`
-        // (carries `Minimal`, added alongside gpt-5), distinct from the
-        // unified five-variant `ReasoningEffort` on default_parameters.
-        let s = OpenAiSettingsV1 {
-            reasoning_effort: Some(OpenAiReasoningEffort::Minimal),
-            ..sample()
-        };
-        assert_eq!(s.reasoning_effort, Some(OpenAiReasoningEffort::Minimal));
-    }
-
-    #[test]
-    fn openai_reasoning_effort_has_six_variants() {
-        let efforts = [
-            OpenAiReasoningEffort::None,
-            OpenAiReasoningEffort::Minimal,
-            OpenAiReasoningEffort::Low,
-            OpenAiReasoningEffort::Medium,
-            OpenAiReasoningEffort::High,
-            OpenAiReasoningEffort::XHigh,
-        ];
-        assert_eq!(efforts.len(), 6);
-        // `Minimal` sits between `None` and `Low`.
-        assert_ne!(efforts[0], efforts[1]);
-        assert_ne!(efforts[1], efforts[2]);
+        // Round-trip from wire shape.
+        let parsed: OpenAiResponseFormat =
+            serde_json::from_value(serde_json::json!({"type": "json_object"})).unwrap();
+        assert_eq!(parsed, OpenAiResponseFormat::JsonObject);
     }
 }

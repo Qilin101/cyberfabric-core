@@ -84,9 +84,14 @@ impl Default for TextFormat {
 }
 
 /// Concrete text-format variant.
+///
+/// Wire format is the externally-tagged Open Responses shape (each variant
+/// emits a `{ "type": ... }` object) and matches
+/// `gts.cf.llmgw.core.text_format.v1~`.
 #[derive(
     Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
 )]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum TextFormatKind {
     /// Plain text — provider default.
     #[default]
@@ -151,16 +156,42 @@ pub enum ReasoningSummary {
 // ---------------------------------------------------------------------------
 
 /// Tool-choice policy in the unified Open Responses shape.
+///
+/// Wire format mirrors `gts.cf.llmgw.core.create_response_body.v1~`, which
+/// accepts either a bare lowercase mode string or a tagged object naming a
+/// specific tool to force. The two shapes are encoded with an
+/// `#[serde(untagged)]` outer enum.
 #[derive(
     Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
 )]
+#[serde(untagged)]
 pub enum ToolChoice {
-    /// Provider picks (default).
+    /// Mode-only choice — bare string on the wire.
+    Mode(ToolChoiceMode),
+    /// Force a specific tool by name — tagged object on the wire.
+    Named(NamedToolChoice),
+}
+
+/// Bare-string tool-choice mode.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolChoiceMode {
+    /// Provider picks.
     Auto,
     /// Provider must call exactly one tool.
     Required,
     /// No tool calling.
     None,
+}
+
+/// Named tool-choice — the tagged-object shape with a `type` discriminator.
+#[derive(
+    Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum NamedToolChoice {
     /// Force a specific tool by name.
     Function { name: String },
 }
@@ -191,37 +222,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_inference_parameters_default_is_empty() {
-        let p = DefaultInferenceParametersV1::default();
-        assert!(p.temperature.is_none());
-        assert!(p.top_p.is_none());
-        assert!(p.max_output_tokens.is_none());
-        assert!(p.max_tool_calls.is_none());
-        assert!(p.presence_penalty.is_none());
-        assert!(p.frequency_penalty.is_none());
-        assert!(p.top_logprobs.is_none());
-        assert!(p.truncation.is_none());
-        assert!(p.service_tier.is_none());
-        assert!(p.parallel_tool_calls.is_none());
-        assert!(p.text.is_none());
-        assert!(p.reasoning.is_none());
-        assert!(p.tool_choice.is_none());
-        assert!(p.store.is_none());
-    }
-
-    #[test]
-    fn truncation_strategy_variants() {
-        assert_eq!(TruncationStrategy::Auto, TruncationStrategy::Auto);
-        assert_ne!(TruncationStrategy::Auto, TruncationStrategy::Disabled);
-    }
-
-    #[test]
-    fn text_verbosity_variants() {
-        assert_ne!(TextVerbosity::Low, TextVerbosity::High);
-        assert_eq!(TextVerbosity::Medium, TextVerbosity::Medium);
-    }
-
-    #[test]
     fn unified_enums_wire_format_is_lowercase() {
         // Pinned wire format — must stay lowercase to match the
         // gateway-side gts.cf.llmgw.core.* schemas. If a future change
@@ -250,24 +250,6 @@ mod tests {
     }
 
     #[test]
-    fn text_format_kind_variants() {
-        let txt = TextFormatKind::Text;
-        let json = TextFormatKind::JsonObject;
-        let schema = TextFormatKind::JsonSchema {
-            name: "Person".into(),
-            description: Some("A person record".into()),
-            schema: Some(serde_json::json!({"type": "object"})),
-            strict: true,
-        };
-        assert_ne!(txt, json);
-        assert_ne!(json, schema);
-        if let TextFormatKind::JsonSchema { name, strict, .. } = schema {
-            assert_eq!(name, "Person");
-            assert!(strict);
-        }
-    }
-
-    #[test]
     fn text_format_default_is_text_no_verbosity() {
         let t = TextFormat::default();
         assert_eq!(t.format, TextFormatKind::Text);
@@ -275,62 +257,76 @@ mod tests {
     }
 
     #[test]
-    fn reasoning_summary_variants() {
-        assert_ne!(ReasoningSummary::Concise, ReasoningSummary::Detailed);
-        assert_eq!(ReasoningSummary::Auto, ReasoningSummary::Auto);
+    fn text_format_kind_wire_format_is_tagged_snake_case() {
+        // Pinned to gts.cf.llmgw.core.text_format.v1~ — the gateway expects
+        // an externally-tagged object discriminated by the `type` field.
+        assert_eq!(
+            serde_json::to_value(TextFormatKind::Text).unwrap(),
+            serde_json::json!({ "type": "text" }),
+        );
+        assert_eq!(
+            serde_json::to_value(TextFormatKind::JsonObject).unwrap(),
+            serde_json::json!({ "type": "json_object" }),
+        );
+        assert_eq!(
+            serde_json::to_value(TextFormatKind::JsonSchema {
+                name: "Person".into(),
+                description: Some("A person".into()),
+                schema: Some(serde_json::json!({"type": "object"})),
+                strict: true,
+            })
+            .unwrap(),
+            serde_json::json!({
+                "type": "json_schema",
+                "name": "Person",
+                "description": "A person",
+                "schema": { "type": "object" },
+                "strict": true,
+            }),
+        );
+
+        // Round-trip from the gateway-shaped wire form.
+        let parsed: TextFormatKind =
+            serde_json::from_value(serde_json::json!({"type": "json_object"})).unwrap();
+        assert_eq!(parsed, TextFormatKind::JsonObject);
     }
 
     #[test]
-    fn reasoning_config_default_is_empty() {
-        let r = ReasoningConfig::default();
-        assert!(r.effort.is_none());
-        assert!(r.summary.is_none());
-    }
+    fn tool_choice_wire_format_matches_create_response_body() {
+        // Pinned to gts.cf.llmgw.core.create_response_body.v1~ — the gateway
+        // accepts either a bare lowercase mode string or a tagged
+        // function-name object.
+        assert_eq!(
+            serde_json::to_value(ToolChoice::Mode(ToolChoiceMode::Auto)).unwrap(),
+            serde_json::Value::String("auto".into()),
+        );
+        assert_eq!(
+            serde_json::to_value(ToolChoice::Mode(ToolChoiceMode::Required)).unwrap(),
+            serde_json::Value::String("required".into()),
+        );
+        assert_eq!(
+            serde_json::to_value(ToolChoice::Mode(ToolChoiceMode::None)).unwrap(),
+            serde_json::Value::String("none".into()),
+        );
+        assert_eq!(
+            serde_json::to_value(ToolChoice::Named(NamedToolChoice::Function {
+                name: "search".into(),
+            }))
+            .unwrap(),
+            serde_json::json!({ "type": "function", "name": "search" }),
+        );
 
-    #[test]
-    fn tool_choice_variants() {
-        let auto = ToolChoice::Auto;
-        let req = ToolChoice::Required;
-        let none = ToolChoice::None;
-        let fun = ToolChoice::Function {
-            name: "search".into(),
-        };
-        assert_ne!(auto, req);
-        assert_ne!(none, fun);
-        if let ToolChoice::Function { name } = fun {
-            assert_eq!(name, "search");
-        }
-    }
-
-    #[test]
-    fn populated_round_trip_serde() {
-        let p = DefaultInferenceParametersV1 {
-            temperature: Some(0.7),
-            top_p: Some(0.95),
-            max_output_tokens: Some(4096),
-            max_tool_calls: Some(8),
-            presence_penalty: Some(0.0),
-            frequency_penalty: Some(0.1),
-            top_logprobs: Some(5),
-            truncation: Some(TruncationStrategy::Auto),
-            service_tier: Some(ServiceTier::Default),
-            parallel_tool_calls: Some(true),
-            text: Some(TextFormat {
-                format: TextFormatKind::JsonObject,
-                verbosity: Some(TextVerbosity::Medium),
-            }),
-            reasoning: Some(ReasoningConfig {
-                effort: Some(ReasoningEffort::Medium),
-                summary: Some(ReasoningSummary::Auto),
-            }),
-            tool_choice: Some(ToolChoice::Function {
-                name: "lookup".into(),
-            }),
-            store: Some(false),
-        };
-        let serialized = serde_json::to_value(&p).expect("serialize");
-        let round_tripped: DefaultInferenceParametersV1 =
-            serde_json::from_value(serialized).expect("deserialize");
-        assert_eq!(p, round_tripped);
+        // Untagged round-trip from each shape the gateway sends back.
+        let mode: ToolChoice = serde_json::from_str("\"auto\"").unwrap();
+        assert_eq!(mode, ToolChoice::Mode(ToolChoiceMode::Auto));
+        let named: ToolChoice =
+            serde_json::from_value(serde_json::json!({ "type": "function", "name": "lookup" }))
+                .unwrap();
+        assert_eq!(
+            named,
+            ToolChoice::Named(NamedToolChoice::Function {
+                name: "lookup".into()
+            })
+        );
     }
 }

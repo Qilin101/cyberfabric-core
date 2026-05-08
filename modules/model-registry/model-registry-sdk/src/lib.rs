@@ -64,6 +64,10 @@ pub use models::{
     CreateProviderRequestBuilder,
     // default inference parameters (user-facing)
     DefaultInferenceParametersV1,
+    DisabledCapabilities,
+    DisabledMediaCapability,
+    DisabledReasoningCapability,
+    DisabledWebSearchCapability,
     DiscoveryResult,
     LifecycleStatus,
     // shared media-typed capability (vision, file_input, image_generation,
@@ -74,6 +78,8 @@ pub use models::{
     // info / entities
     ModelInfoV1,
     ModelPerformance,
+    // tagged-object form of `ToolChoice` (`{"type":"function","name":"…"}`)
+    NamedToolChoice,
     // openai provider — shipped today
     OpenAiCost,
     OpenAiEmbeddingEncoding,
@@ -102,6 +108,8 @@ pub use models::{
     TextFormatKind,
     TextVerbosity,
     ToolChoice,
+    // bare-string mode form of `ToolChoice` (`"auto"`/`"required"`/`"none"`)
+    ToolChoiceMode,
     TruncationStrategy,
     UpdateModelRequest,
     UpdateProviderRequest,
