@@ -70,5 +70,6 @@ pub use info::ModelInfoV1;
 pub use entity::{Alias, DiscoveryResult, Model, Provider, ProviderHealth};
 
 pub use request::{
-    CreateAliasRequest, CreateProviderRequest, CreateProviderRequestBuilder, UpdateProviderRequest,
+    CreateAliasRequest, CreateModelRequest, CreateProviderRequest, CreateProviderRequestBuilder,
+    UpdateModelRequest, UpdateProviderRequest,
 };

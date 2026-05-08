@@ -15,8 +15,8 @@ use modkit_odata::{ODataQuery, Page};
 
 use crate::errors::ModelRegistryError;
 use crate::models::{
-    Alias, CreateAliasRequest, CreateProviderRequest, DiscoveryResult, Model, Provider,
-    ProviderHealth, UpdateProviderRequest,
+    Alias, CreateAliasRequest, CreateModelRequest, CreateProviderRequest, DiscoveryResult, Model,
+    Provider, ProviderHealth, UpdateModelRequest, UpdateProviderRequest,
 };
 
 /// Public API trait for the Model Registry (Version 1).
@@ -30,12 +30,13 @@ use crate::models::{
 /// All methods require `SecurityContext` for tenant scoping and authorization.
 #[async_trait]
 pub trait ModelRegistryClientV1: Send + Sync {
-    // ==================== Models (P1) ====================
+    // ==================== Models — read (P1) ====================
 
     /// Get a model by canonical ID within the caller's tenant context.
     ///
-    /// Returns the model with its approval status resolved via Approval
-    /// Service. Uses cache-first lookup with DB fallback.
+    /// Returns the model with its approval status resolved from
+    /// `ModelApproval` (P1: written directly by admins; P2 onward: routed
+    /// through Approval Service). Uses cache-first lookup with DB fallback.
     async fn get_tenant_model(
         &self,
         ctx: &SecurityContext,
@@ -61,6 +62,63 @@ pub trait ModelRegistryClientV1: Send + Sync {
         ctx: &SecurityContext,
         query: ODataQuery,
     ) -> Result<Page<Model>, ModelRegistryError>;
+
+    // ==================== Models — manual management (P1) ====================
+    //
+    // P1 admin catalog management without auto-discovery
+    // (`cpt-cf-model-registry-fr-manual-model-management`). Status changes
+    // (`approve` / `reject` / `revoke`) flow through `update_model` with
+    // `UpdateModelRequest::approval_status` — no dedicated action endpoints.
+    //
+    // Same SDK methods continue to work in P2; only the implementation of
+    // status writes shifts from a direct DB update to an Approval Service
+    // workflow call (DESIGN §1.2 driver `fr-model-approval`).
+
+    /// Manually register a new model in the catalog.
+    ///
+    /// Provider must already exist (registered via [`Self::create_provider`]
+    /// or inherited from an ancestor tenant). The `canonical_id` is derived
+    /// from `req.provider_slug` + `req.info.provider_model_id`.
+    ///
+    /// In P1 the optional `req.approval_status` is written directly to
+    /// `ModelApproval`; defaults to [`crate::models::ApprovalStatus::Pending`]
+    /// when `None`. In P2 the same field initiates the Approval Service
+    /// workflow.
+    async fn create_model(
+        &self,
+        ctx: &SecurityContext,
+        req: CreateModelRequest,
+    ) -> Result<Model, ModelRegistryError>;
+
+    /// Update an existing model's mutable fields (PATCH semantics).
+    ///
+    /// `canonical_id`, `provider_slug`, `info.provider_model_id`, and
+    /// `info.gts_type` are immutable — to change them, soft-delete and
+    /// recreate.
+    ///
+    /// The `req.approval_status` field is the unified entry point for
+    /// approve / reject / revoke transitions:
+    /// - **P1**: writes directly to `ModelApproval`.
+    /// - **P2 onward**: routes through the Approval Service workflow while
+    ///   non-status field updates remain direct.
+    async fn update_model(
+        &self,
+        ctx: &SecurityContext,
+        canonical_id: &str,
+        req: UpdateModelRequest,
+    ) -> Result<Model, ModelRegistryError>;
+
+    /// Soft-delete a model by canonical ID (sets `lifecycle_status` to
+    /// [`crate::models::LifecycleStatus::Deprecated`]).
+    ///
+    /// Record is retained but hidden from default `list_tenant_models`
+    /// responses. Resurrection requires recreate via [`Self::create_model`]
+    /// after the previous record is purged.
+    async fn delete_model(
+        &self,
+        ctx: &SecurityContext,
+        canonical_id: &str,
+    ) -> Result<(), ModelRegistryError>;
 
     // ==================== Providers (P1) ====================
 
@@ -101,23 +159,49 @@ pub trait ModelRegistryClientV1: Send + Sync {
         id: Uuid,
     ) -> Result<(), ModelRegistryError>;
 
-    /// Trigger model discovery for a provider via OAGW.
+    // ==================== Discovery (P2) ====================
+
+    /// Trigger model discovery for a provider via OAGW
+    /// (`cpt-cf-model-registry-fr-model-discovery` /
+    /// `cpt-cf-model-registry-fr-manual-trigger`).
     async fn trigger_discovery(
         &self,
         ctx: &SecurityContext,
         provider_id: Uuid,
     ) -> Result<DiscoveryResult, ModelRegistryError>;
 
-    // ==================== Provider Health (P2) ====================
+    // ==================== Bulk approval (P2) ====================
+    //
+    // `cpt-cf-model-registry-fr-bulk-operations` — batch wrapper around the
+    // Approval Service workflow introduced in P2. Atomic: all succeed or all
+    // fail. Returns the affected models with their refreshed approval
+    // status.
 
-    /// Get health status for a provider's discovery endpoint.
+    /// Batch-approve models by canonical ID.
+    async fn bulk_approve_models(
+        &self,
+        ctx: &SecurityContext,
+        canonical_ids: Vec<String>,
+    ) -> Result<Vec<Model>, ModelRegistryError>;
+
+    /// Batch-reject models by canonical ID.
+    async fn bulk_reject_models(
+        &self,
+        ctx: &SecurityContext,
+        canonical_ids: Vec<String>,
+    ) -> Result<Vec<Model>, ModelRegistryError>;
+
+    // ==================== Provider Health (P3) ====================
+
+    /// Get discovery health status for a provider
+    /// (`cpt-cf-model-registry-fr-health-monitoring`).
     async fn get_provider_health(
         &self,
         ctx: &SecurityContext,
         provider_id: Uuid,
     ) -> Result<ProviderHealth, ModelRegistryError>;
 
-    // ==================== Aliases (P2) ====================
+    // ==================== Aliases (P3) ====================
 
     /// List aliases for the caller's tenant with `OData` filtering.
     #[cfg(feature = "odata")]

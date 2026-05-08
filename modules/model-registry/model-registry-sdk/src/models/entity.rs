@@ -137,7 +137,8 @@ pub struct Provider {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Provider discovery health status (P2).
+/// Provider discovery health status (P3 —
+/// `cpt-cf-model-registry-fr-health-monitoring`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProviderHealth {
     pub provider_id: Uuid,
@@ -152,7 +153,8 @@ pub struct ProviderHealth {
     pub updated_at: DateTime<Utc>,
 }
 
-/// Human-friendly name mapping to a canonical model ID (P2).
+/// Human-friendly name mapping to a canonical model ID (P3 —
+/// `cpt-cf-model-registry-fr-alias-management`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Alias {
     pub id: Uuid,

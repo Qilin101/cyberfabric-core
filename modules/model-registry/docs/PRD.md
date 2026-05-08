@@ -18,9 +18,10 @@
 - [5. Domain Model](#5-domain-model)
   - [Core Entities](#core-entities)
 - [6. Functional Requirements](#6-functional-requirements)
-  - [P1 — Core (MVP)](#p1--core-mvp)
-  - [P2 — Enhanced Features](#p2--enhanced-features)
-  - [P3 — Fine-Grained Access Control](#p3--fine-grained-access-control)
+  - [P1 — Core (MVP) — Manual Model Management](#p1--core-mvp--manual-model-management)
+  - [P2 — Discovery & Approval Service Integration](#p2--discovery--approval-service-integration)
+  - [P3 — Enhanced Features](#p3--enhanced-features)
+  - [P4 — Fine-Grained Access Control](#p4--fine-grained-access-control)
 - [7. Auditable Operations](#7-auditable-operations)
 - [8. Non-Functional Requirements](#8-non-functional-requirements)
   - [Performance](#performance)
@@ -51,6 +52,7 @@
   - [UC-017: Trigger Discovery](#uc-017-trigger-discovery)
   - [UC-018: Approve Model for User Group](#uc-018-approve-model-for-user-group)
   - [UC-019: Override User Access](#uc-019-override-user-access)
+  - [UC-020: Manually Manage Model Catalog](#uc-020-manually-manage-model-catalog)
 - [14. Acceptance Criteria](#14-acceptance-criteria)
 - [15. Dependencies](#15-dependencies)
 - [16. Assumptions](#16-assumptions)
@@ -274,7 +276,11 @@ Represents an AI model in the catalog.
 
 Tracks tenant approval status for a model. Integrates with generic **Approval Service** for workflow management.
 
-**Note**: Model Registry does not implement approval workflow logic. It delegates to a generic Approval Service that can handle approvals for any resource type. Model Registry:
+**Phase note**:
+- **P1 (Manual Model Management)**: ModelApproval is managed directly by Model Registry — tenant admin sets status (`approved`/`rejected`/`revoked`) via API. No external workflow engine, no auto-approval rules.
+- **P2 onward (Approval Service Integration)**: Model Registry delegates the workflow to a generic Approval Service. The state machine below applies in both phases; only the actor triggering transitions differs (admin in P1, workflow engine + admin in P2).
+
+In P2, Model Registry:
 - Registers model as approvable resource with Approval Service
 - Queries approval status from Approval Service
 - Reacts to approval status changes via events
@@ -293,14 +299,14 @@ Tracks tenant approval status for a model. Integrates with generic **Approval Se
 stateDiagram-v2
     [*] --> pending: Model discovered
     pending --> approved: Admin approves
-    pending --> approved: Auto-approval rule matches
+    pending --> approved: Auto-approval rule matches (P3)
     pending --> rejected: Admin rejects
     approved --> revoked: Admin revokes
     rejected --> approved: Admin reconsiders
     revoked --> approved: Admin reinstates
 ```
 
-#### AutoApprovalRule (P2)
+#### AutoApprovalRule (P3)
 
 Defines rules for automatic model approval. Managed by **Approval Service** with model-specific criteria defined by Model Registry.
 
@@ -323,7 +329,7 @@ Defines rules for automatic model approval. Managed by **Approval Service** with
 
 **Authorization**: Read/list visible to tenant admins only.
 
-#### ProviderHealth (P2)
+#### ProviderHealth (P3)
 
 Stores provider **discovery health** status — NOT routing/inference health.
 
@@ -343,7 +349,7 @@ Stores provider **discovery health** status — NOT routing/inference health.
 
 **Authorization**: `status` field visible to all authenticated users within tenant hierarchy. Error details (`last_error_message`, `last_error`) visible to tenant admins only.
 
-#### Alias (P2)
+#### Alias (P3)
 
 Maps human-friendly names to canonical model IDs.
 
@@ -355,7 +361,7 @@ Maps human-friendly names to canonical model IDs.
 
 ## 6. Functional Requirements
 
-### P1 — Core (MVP)
+### P1 — Core (MVP) — Manual Model Management
 
 #### Tenant Isolation
 
@@ -458,47 +464,33 @@ Capability filtering uses subset matching: model must have AT LEAST requested ca
 
 **Actors**: `cpt-cf-model-registry-actor-llm-gateway`
 
-#### Model Discovery
+#### Manual Model Management
 
-- [ ] `p1` - **ID**: `cpt-cf-model-registry-fr-model-discovery`
+- [ ] `p1` - **ID**: `cpt-cf-model-registry-fr-manual-model-management`
 
-The system must support discovery of available models from providers via Outbound API Gateway.
+The system must allow admins to manually create, update, and remove model catalog entries without auto-discovery or an external workflow service.
 
-**Trigger mechanism**:
-- **Default**: Manual action triggered by admin (via API or UI)
-- **Optional**: Can be automated via external scheduled workflow (e.g., platform scheduler, Kubernetes CronJob)
+**Operations**:
+- **Create model** — admin supplies `provider_slug` + `provider_model_id` (registry derives `canonical_id`), display fields, capabilities, limits, provider cost, and lifecycle status.
+- **Update model** — admin edits any mutable field; `canonical_id` remains immutable after creation.
+- **Soft-delete model** — admin marks model as `deprecated`; record retained, hidden from default `list_tenant_models`.
 
-Model Registry provides discovery API endpoint; scheduling is NOT built into Model Registry.
+**Approval status (P1)**:
+- ModelApproval entries are managed directly by the tenant admin via Model Registry API — no Approval Service in P1.
+- Admin can set status to `approved`, `rejected`, or `revoked`. Default for newly created models is `pending` (admin must explicitly approve), unless created with `status=approved` in a single call (admin convenience).
+- State transitions follow the ModelApproval state machine and are enforced by Model Registry domain logic; no workflow engine in P1.
+- Approval granularity in P1: tenant-level — approval grants access to all users in tenant.
 
-**Concurrency**: Fixed concurrency limit + staggered intervals when multiple discoveries run.
+**Authorization**:
+- Platform admin: manage models for any provider (root or tenant-owned).
+- Tenant admin: manage models for own providers; manage approval status for own tenant.
 
-Per (tenant, provider) pair where discovery is enabled:
-- Fetch models from provider's models endpoint (plugin responsibility)
-- New models → create with `pending` status
-- Existing models → update metadata (capabilities, limits, provider cost)
-- Missing models → soft-delete (mark as `deprecated`)
+**Out of scope for P1**:
+- Auto-discovery from provider endpoints (P2)
+- Approval Service workflow integration (P2)
+- Auto-approval rules (P3)
 
-**Dependencies**: OAGW (executes provider API calls), Provider API (returns models list)
-
-#### Model Approval Integration
-
-- [ ] `p1` - **ID**: `cpt-cf-model-registry-fr-model-approval`
-
-The system must integrate with generic Approval Service for tenant-level model approval workflow.
-
-**Model Registry responsibilities**:
-- Register discovered models as approvable resources with Approval Service
-- Query approval status from Approval Service when resolving models
-- React to approval status change events
-
-**Approval Service responsibilities** (out of Model Registry scope):
-- Approval workflow engine (state machine, concurrency control)
-- Approval UI and notifications
-- Audit trail for approval decisions
-
-Approval granularity (P1): Tenant-level — approval grants access to all users in tenant.
-
-**Actors**: `cpt-cf-model-registry-actor-tenant-admin`
+**Actors**: `cpt-cf-model-registry-actor-platform-admin`, `cpt-cf-model-registry-actor-tenant-admin`
 
 #### Provider Management
 
@@ -537,11 +529,71 @@ Model Registry returns **provider cost only**. Caller (LLM Gateway) fetches tena
 
 **Actors**: `cpt-cf-model-registry-actor-llm-gateway`
 
-### P2 — Enhanced Features
+### P2 — Discovery & Approval Service Integration
+
+P2 layers automated discovery and an external Approval Service workflow on top of the manual P1 catalog. The ModelApproval entity from P1 is reused; only the actor that drives transitions changes.
+
+#### Model Discovery
+
+- [ ] `p2` - **ID**: `cpt-cf-model-registry-fr-model-discovery`
+
+The system must support discovery of available models from providers via Outbound API Gateway.
+
+**Trigger mechanism**:
+- **Default**: Manual action triggered by admin (via API or UI)
+- **Optional**: Can be automated via external scheduled workflow (e.g., platform scheduler, Kubernetes CronJob)
+
+Model Registry provides discovery API endpoint; scheduling is NOT built into Model Registry.
+
+**Concurrency**: Fixed concurrency limit + staggered intervals when multiple discoveries run.
+
+Per (tenant, provider) pair where discovery is enabled:
+- Fetch models from provider's models endpoint (plugin responsibility)
+- New models → create with `pending` status
+- Existing models → update metadata (capabilities, limits, provider cost)
+- Missing models → soft-delete (mark as `deprecated`)
+
+**Dependencies**: OAGW (executes provider API calls), Provider API (returns models list)
+
+#### Model Approval Integration
+
+- [ ] `p2` - **ID**: `cpt-cf-model-registry-fr-model-approval`
+
+The system must integrate with the generic Approval Service for tenant-level model approval workflow, replacing P1's direct admin-managed approvals.
+
+**Model Registry responsibilities**:
+- Register discovered models as approvable resources with Approval Service
+- Query approval status from Approval Service when resolving models
+- React to approval status change events
+
+**Approval Service responsibilities** (out of Model Registry scope):
+- Approval workflow engine (state machine, concurrency control)
+- Approval UI and notifications
+- Audit trail for approval decisions
+
+Approval granularity (P2): Tenant-level — approval grants access to all users in tenant. (Same as P1; finer granularity arrives in P4.)
+
+**Migration from P1**: Existing manually-managed `ModelApproval` rows are registered as approvable resources with the Approval Service on rollout. P1 admin-direct status updates are replaced by Approval Service workflow calls; the Model Registry API surface continues to accept admin approve/reject calls but routes them through the Approval Service.
+
+**Actors**: `cpt-cf-model-registry-actor-tenant-admin`
+
+#### Bulk Operations
+
+- [ ] `p2` - **ID**: `cpt-cf-model-registry-fr-bulk-operations`
+
+The system must support batch approval operations: `approve_models(model_ids[])`, `reject_models(model_ids[])`. Bulk operations route through the Approval Service introduced in this phase.
+
+#### Manual Discovery Trigger
+
+- [ ] `p2` - **ID**: `cpt-cf-model-registry-fr-manual-trigger`
+
+The system must allow platform and tenant admins to manually trigger discovery for a configured provider. (Health probe triggers arrive in P3 alongside provider health monitoring.)
+
+### P3 — Enhanced Features
 
 #### Auto-Approval Rules
 
-- [ ] `p2` - **ID**: `cpt-cf-model-registry-fr-auto-approval`
+- [ ] `p3` - **ID**: `cpt-cf-model-registry-fr-auto-approval`
 
 The system must integrate with Approval Service for automatic model approval based on configurable rules.
 
@@ -570,7 +622,7 @@ Auto-approved models store reference to the triggering rule (`auto_approval_rule
 
 #### Provider Discovery Health Storage
 
-- [ ] `p2` - **ID**: `cpt-cf-model-registry-fr-health-monitoring`
+- [ ] `p3` - **ID**: `cpt-cf-model-registry-fr-health-monitoring`
 
 The system must store provider **discovery health** status derived from discovery calls.
 
@@ -585,6 +637,8 @@ Health derivation:
 
 Health stored at provider owner tenant only. Child tenants inherit parent's health status.
 
+Manual health probe trigger is added in this phase (extends `fr-manual-trigger`).
+
 **Out of scope** (OAGW responsibility):
 - Inference endpoint health
 - Per-route availability
@@ -594,7 +648,7 @@ Health stored at provider owner tenant only. Child tenants inherit parent's heal
 
 #### Alias Management
 
-- [ ] `p2` - **ID**: `cpt-cf-model-registry-fr-alias-management`
+- [ ] `p3` - **ID**: `cpt-cf-model-registry-fr-alias-management`
 
 The system must support model aliases with hierarchical scoping.
 
@@ -610,18 +664,18 @@ Constraint: Alias target MUST be a canonical ID, not another alias (prevents cir
 
 #### Degraded Mode
 
-- [ ] `p2` - **ID**: `cpt-cf-model-registry-fr-degraded-mode`
+- [ ] `p3` - **ID**: `cpt-cf-model-registry-fr-degraded-mode`
 
 The system must define tiered behavior when database is unavailable.
 
 - Model capabilities and metadata: serve from stale cache (up to 30 min TTL)
 - Approval verification: fail request with `service_unavailable` error
 
-P1 behavior: DB unavailable = all requests fail (fail-closed).
+P1 and P2 behavior: DB unavailable = all requests fail (fail-closed). The tiered degraded mode above replaces fail-closed starting in P3.
 
 #### Tenant Re-parenting
 
-- [ ] `p2` - **ID**: `cpt-cf-model-registry-fr-tenant-reparenting`
+- [ ] `p3` - **ID**: `cpt-cf-model-registry-fr-tenant-reparenting`
 
 The system must handle tenant hierarchy changes.
 
@@ -630,23 +684,11 @@ When tenant moves to different parent:
 - Model Registry invalidates all cache entries for affected tenant on `tenant.reparented` event
 - Re-evaluation of approvals happens on next access
 
-#### Bulk Operations
-
-- [ ] `p2` - **ID**: `cpt-cf-model-registry-fr-bulk-operations`
-
-The system must support batch approval operations: `approve_models(model_ids[])`, `reject_models(model_ids[])`.
-
-#### Manual Discovery/Probe Trigger
-
-- [ ] `p2` - **ID**: `cpt-cf-model-registry-fr-manual-trigger`
-
-The system must allow platform admins to manually trigger discovery and health probes.
-
-### P3 — Fine-Grained Access Control
+### P4 — Fine-Grained Access Control
 
 #### User Group Approval
 
-- [ ] `p3` - **ID**: `cpt-cf-model-registry-fr-user-group-approval`
+- [ ] `p4` - **ID**: `cpt-cf-model-registry-fr-user-group-approval`
 
 The system must support model approval scoped to user groups within a tenant.
 
@@ -654,7 +696,7 @@ The system must support model approval scoped to user groups within a tenant.
 
 #### User-Level Override
 
-- [ ] `p3` - **ID**: `cpt-cf-model-registry-fr-user-level-override`
+- [ ] `p4` - **ID**: `cpt-cf-model-registry-fr-user-level-override`
 
 The system must support individual user restrictions/allowances for model access.
 
@@ -672,12 +714,12 @@ The following operations MUST be logged for audit compliance:
 | Provider registered | provider_id, tenant_id, actor_id, timestamp |
 | Provider disabled | provider_id, tenant_id, actor_id, timestamp |
 | Provider enabled | provider_id, tenant_id, actor_id, timestamp |
-| Alias created (P2) | alias_name, target, tenant_id, actor_id, timestamp |
-| Alias updated (P2) | alias_name, old_target, new_target, tenant_id, actor_id, timestamp |
-| Alias deleted (P2) | alias_name, tenant_id, actor_id, timestamp |
-| Auto-approval rule created (P2) | rule_id, criteria, tenant_id, actor_id, timestamp |
-| Auto-approval rule updated (P2) | rule_id, tenant_id, actor_id, timestamp |
-| Auto-approval rule deleted (P2) | rule_id, tenant_id, actor_id, timestamp |
+| Alias created (P3) | alias_name, target, tenant_id, actor_id, timestamp |
+| Alias updated (P3) | alias_name, old_target, new_target, tenant_id, actor_id, timestamp |
+| Alias deleted (P3) | alias_name, tenant_id, actor_id, timestamp |
+| Auto-approval rule created (P3) | rule_id, criteria, tenant_id, actor_id, timestamp |
+| Auto-approval rule updated (P3) | rule_id, tenant_id, actor_id, timestamp |
+| Auto-approval rule deleted (P3) | rule_id, tenant_id, actor_id, timestamp |
 
 Read operations are not audited (high volume, low value).
 
@@ -704,9 +746,9 @@ Caching: Distributed cache (default: Redis, pluggable) with TTL-based invalidati
 
 Target: 99.9% availability.
 
-P1: DB unavailable = requests fail (fail-closed).
+P1 & P2: DB unavailable = requests fail (fail-closed).
 
-P2: Tiered degraded mode (metadata from cache, approval check fails).
+P3: Tiered degraded mode (metadata from cache, approval check fails).
 
 Cache unavailable: Fallback to direct DB queries (higher latency).
 
@@ -760,7 +802,7 @@ Error responses follow RFC 9457 Problem Details standard.
 | Cache poisoning | TTL-based expiry; no user-controlled cache keys |
 | Provider credential exposure | Credentials handled by OAGW, not stored in Model Registry |
 | Privilege escalation via hierarchy | Child tenants can only restrict, not expand parent permissions |
-| Stale approval served | Approval status always verified from DB (P1 fail-closed) |
+| Stale approval served | Approval status always verified from DB (P1 & P2 fail-closed) |
 
 ## 11. Consumers
 
@@ -825,7 +867,7 @@ Key interfaces:
 
 ### UC-003: Model Discovery
 
-- [ ] `p1` - **ID**: `cpt-cf-model-registry-usecase-model-discovery`
+- [ ] `p2` - **ID**: `cpt-cf-model-registry-usecase-model-discovery`
 
 **Actor**: `cpt-cf-model-registry-actor-platform-admin` (manual) or External Scheduler (automated)
 
@@ -854,7 +896,7 @@ Key interfaces:
 
 ### UC-004: Model Approval
 
-- [ ] `p1` - **ID**: `cpt-cf-model-registry-usecase-model-approval`
+- [ ] `p2` - **ID**: `cpt-cf-model-registry-usecase-model-approval`
 
 **Actor**: `cpt-cf-model-registry-actor-tenant-admin`
 
@@ -870,13 +912,13 @@ Key interfaces:
 
 **Acceptance criteria**:
 - State transitions managed by Approval Service
-- Approval is tenant-scoped (P1)
+- Approval is tenant-scoped (P2; P1 manual flow uses the same granularity)
 - Approval recorded with actor and timestamp (by Approval Service)
 - Model Registry correctly reflects approval status from Approval Service
 
 ### UC-005: Model Revocation
 
-- [ ] `p1` - **ID**: `cpt-cf-model-registry-usecase-model-revocation`
+- [ ] `p2` - **ID**: `cpt-cf-model-registry-usecase-model-revocation`
 
 **Actor**: `cpt-cf-model-registry-actor-tenant-admin`
 
@@ -974,7 +1016,7 @@ Key interfaces:
 
 ### UC-010: Configure Auto-Approval Rule
 
-- [ ] `p2` - **ID**: `cpt-cf-model-registry-usecase-auto-approval-rule`
+- [ ] `p3` - **ID**: `cpt-cf-model-registry-usecase-auto-approval-rule`
 
 **Actor**: `cpt-cf-model-registry-actor-tenant-admin`, `cpt-cf-model-registry-actor-platform-admin`
 
@@ -996,7 +1038,7 @@ Key interfaces:
 
 ### UC-011: Get Provider Discovery Health
 
-- [ ] `p2` - **ID**: `cpt-cf-model-registry-usecase-provider-health`
+- [ ] `p3` - **ID**: `cpt-cf-model-registry-usecase-provider-health`
 
 **Actor**: `cpt-cf-model-registry-actor-llm-gateway`
 
@@ -1019,7 +1061,7 @@ Key interfaces:
 
 ### UC-012: Create Alias
 
-- [ ] `p2` - **ID**: `cpt-cf-model-registry-usecase-create-alias`
+- [ ] `p3` - **ID**: `cpt-cf-model-registry-usecase-create-alias`
 
 **Actor**: `cpt-cf-model-registry-actor-tenant-admin`, `cpt-cf-model-registry-actor-platform-admin`
 
@@ -1040,7 +1082,7 @@ Key interfaces:
 
 ### UC-013: Resolve Alias
 
-- [ ] `p2` - **ID**: `cpt-cf-model-registry-usecase-resolve-alias`
+- [ ] `p3` - **ID**: `cpt-cf-model-registry-usecase-resolve-alias`
 
 **Actor**: `cpt-cf-model-registry-actor-llm-gateway`
 
@@ -1059,7 +1101,7 @@ Key interfaces:
 
 ### UC-014: Handle Degraded Mode
 
-- [ ] `p2` - **ID**: `cpt-cf-model-registry-usecase-degraded-mode`
+- [ ] `p3` - **ID**: `cpt-cf-model-registry-usecase-degraded-mode`
 
 **Actor**: `cpt-cf-model-registry-actor-llm-gateway`
 
@@ -1080,7 +1122,7 @@ Key interfaces:
 
 ### UC-015: Handle Tenant Re-parenting
 
-- [ ] `p2` - **ID**: `cpt-cf-model-registry-usecase-tenant-reparenting`
+- [ ] `p3` - **ID**: `cpt-cf-model-registry-usecase-tenant-reparenting`
 
 **Actor**: Internal (event handler)
 
@@ -1119,7 +1161,7 @@ Key interfaces:
 
 ### UC-017: Trigger Discovery
 
-- [ ] `p1` - **ID**: `cpt-cf-model-registry-usecase-manual-discovery`
+- [ ] `p2` - **ID**: `cpt-cf-model-registry-usecase-manual-discovery`
 
 **Actor**: `cpt-cf-model-registry-actor-platform-admin`, `cpt-cf-model-registry-actor-tenant-admin`
 
@@ -1139,7 +1181,7 @@ Key interfaces:
 
 ### UC-018: Approve Model for User Group
 
-- [ ] `p3` - **ID**: `cpt-cf-model-registry-usecase-user-group-approval`
+- [ ] `p4` - **ID**: `cpt-cf-model-registry-usecase-user-group-approval`
 
 **Actor**: `cpt-cf-model-registry-actor-tenant-admin`
 
@@ -1158,7 +1200,7 @@ Key interfaces:
 
 ### UC-019: Override User Access
 
-- [ ] `p3` - **ID**: `cpt-cf-model-registry-usecase-user-override`
+- [ ] `p4` - **ID**: `cpt-cf-model-registry-usecase-user-override`
 
 **Actor**: `cpt-cf-model-registry-actor-tenant-admin`
 
@@ -1174,6 +1216,32 @@ Key interfaces:
 **Acceptance criteria**:
 - User override takes precedence over group and tenant approvals
 - Can both grant (if tenant allows) and revoke access
+
+### UC-020: Manually Manage Model Catalog
+
+- [ ] `p1` - **ID**: `cpt-cf-model-registry-usecase-manual-model-management`
+
+**Actor**: `cpt-cf-model-registry-actor-platform-admin`, `cpt-cf-model-registry-actor-tenant-admin`
+
+**Preconditions**: Provider exists for the model (registered via UC-006).
+
+**Flow**:
+1. Admin submits a create / update / soft-delete request with model fields (`provider_slug`, `provider_model_id`, capabilities, limits, provider cost, lifecycle status)
+2. Registry validates input (canonical ID format derived from `provider_slug::provider_model_id`, capability schema, GTS lifecycle type, immutability of `canonical_id`)
+3. Registry persists model entry
+4. For create: admin sets initial `ModelApproval` status — defaults to `pending`; admin may pass `status=approved` to approve in the same call
+5. For update of an existing model: admin may directly set status to `approved`, `rejected`, or `revoked` (P1 has no workflow engine)
+6. For soft-delete: admin marks model as `deprecated`; record retained, hidden from default `list_tenant_models`
+
+**Postconditions**: Model present in catalog with admin-defined approval status; or removed (soft-deleted).
+
+**Acceptance criteria**:
+- Manual creation does NOT call out to an Approval Service in P1
+- `canonical_id` is immutable after creation; rename requires delete + recreate
+- Status transitions follow the `ModelApproval` state machine
+- Soft-delete sets status to `deprecated` without purging the record; resurrection allowed by re-creating with same `canonical_id` only if previous record purged
+- Tenant admin can manage models for own providers only; platform admin can manage any
+- In P2, the same admin endpoints route through the Approval Service; the API surface remains backward-compatible
 
 ## 14. Acceptance Criteria
 

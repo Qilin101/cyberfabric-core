@@ -59,6 +59,7 @@ pub use models::{
     // common types
     ContextWindow,
     CreateAliasRequest,
+    CreateModelRequest,
     CreateProviderRequest,
     CreateProviderRequestBuilder,
     // default inference parameters (user-facing)
@@ -102,6 +103,7 @@ pub use models::{
     TextVerbosity,
     ToolChoice,
     TruncationStrategy,
+    UpdateModelRequest,
     UpdateProviderRequest,
     WebSearchCapability,
 };
