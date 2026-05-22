@@ -2098,8 +2098,8 @@ operator-level PDP grants for platform-wide operator activities (e.g., aggregate
 Operator-managed platform-wide entities — Quota Resolution Policies, Subject Type Registry entries, and registered Quota
 Resolution Engines — are **not** tenant-scoped. Their addressing uses scope discriminators specific to each entity
 (e.g., a Policy's `scope` field per `cpt-cf-quota-enforcement-fr-quota-resolution-policy`) rather than a `tenant_id`
-column, mirroring the precedent set by `cpt-cf-usage-collector-fr-retention-policies`. Mutation of these entities is
-gated by operator-level PDP grants and is out of scope for tenant isolation enforcement.
+column. Mutation of these entities is gated by operator-level PDP grants and is out of scope for tenant isolation
+enforcement.
 
 - **Rationale**: Tenant isolation is a baseline security and compliance requirement (REQ.md §9). Tagging every persisted
   row with `tenant_id` at write time makes isolation enforceable at the storage layer rather than only at the API
