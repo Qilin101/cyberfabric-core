@@ -2,7 +2,7 @@ use crate::{claims_error::ClaimsError, traits::KeyProvider};
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use jsonwebtoken::{DecodingKey, Header, decode_header};
+use jsonwebtoken::{Algorithm, DecodingKey, Header, decode_header};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -359,6 +359,11 @@ impl JwksKeyProvider {
         let payload_b64 = parts[1];
         let signature = parts[2];
 
+        // Enforce the FIPS-approved JWT algorithm allow-list before invoking
+        // the underlying crypto library — an attacker who controls the header
+        // must not be able to pick a non-FIPS algorithm.
+        fips_allow_alg(header.alg)?;
+
         // Verify signature over header.payload (the original signing input)
         let valid =
             jsonwebtoken::crypto::verify(signature, signing_input.as_bytes(), key, header.alg)
@@ -509,6 +514,46 @@ fn decode_header_with_handler(
 /// Map `HttpError` variants to appropriate `ClaimsError` messages
 fn map_http_error(e: &modkit_http::HttpError) -> ClaimsError {
     ClaimsError::JwksFetchFailed(crate::http_error::format_http_error(e, "JWKS"))
+}
+
+/// FIPS-140-3 approved JWT signature algorithms.
+///
+/// An attacker who controls the JWT header can otherwise pick any algorithm
+/// that the underlying crypto library recognises (e.g. `EdDSA`, or an `ES384`
+/// over a non-FIPS curve). This list is the defensive allow-list that gates
+/// `jsonwebtoken::crypto::verify` in `validate_token`.
+///
+/// | Family     | Approved algorithms      |
+/// |------------|--------------------------|
+/// | RSA PKCS#1 | `RS256`, `RS384`, `RS512` |
+/// | RSA-PSS    | `PS256`, `PS384`, `PS512` |
+/// | ECDSA      | `ES256`, `ES384`          |
+/// | HMAC       | `HS256`, `HS384`, `HS512` |
+///
+/// # Errors
+/// Returns `ClaimsError::UnsupportedAlgorithm` for any algorithm outside the
+/// approved set. The conversion in `claims_error.rs` surfaces this as
+/// `AuthError::UnsupportedAlgorithm` at the public API boundary.
+fn fips_allow_alg(alg: Algorithm) -> Result<(), ClaimsError> {
+    // The match is intentionally exhaustive (no wildcard arm) so that adding a
+    // new variant to `jsonwebtoken::Algorithm` forces a compile-time decision
+    // here. For a defensive security gate, fail-closed-at-build-time is the
+    // correct default — wildcards silently default-allow or default-reject
+    // future variants without human review.
+    match alg {
+        Algorithm::RS256
+        | Algorithm::RS384
+        | Algorithm::RS512
+        | Algorithm::PS256
+        | Algorithm::PS384
+        | Algorithm::PS512
+        | Algorithm::ES256
+        | Algorithm::ES384
+        | Algorithm::HS256
+        | Algorithm::HS384
+        | Algorithm::HS512 => Ok(()),
+        Algorithm::EdDSA => Err(ClaimsError::UnsupportedAlgorithm(format!("{alg:?}"))),
+    }
 }
 
 #[cfg(test)]
@@ -1204,6 +1249,126 @@ F8gvjIeiwVfp4nDnO2JFexiy
         assert_eq!(header.kid.as_deref(), Some("sign-key-1"));
         assert_eq!(header.extras.get("eap").map(String::as_str), Some("1"));
         assert_eq!(decoded_claims["sub"], "user-extras");
+    }
+
+    #[test]
+    fn test_fips_allow_alg_accepts_full_approved_set() {
+        // Every algorithm in the FIPS-approved table must pass the helper.
+        for alg in [
+            Algorithm::RS256,
+            Algorithm::RS384,
+            Algorithm::RS512,
+            Algorithm::PS256,
+            Algorithm::PS384,
+            Algorithm::PS512,
+            Algorithm::ES256,
+            Algorithm::ES384,
+            Algorithm::HS256,
+            Algorithm::HS384,
+            Algorithm::HS512,
+        ] {
+            fips_allow_alg(alg)
+                .unwrap_or_else(|e| panic!("expected {alg:?} to be FIPS-approved, got: {e:?}"));
+        }
+    }
+
+    #[test]
+    fn test_fips_allow_alg_rejects_eddsa() {
+        let err = fips_allow_alg(Algorithm::EdDSA)
+            .expect_err("EdDSA must be rejected by the FIPS allow-list");
+        match err {
+            ClaimsError::UnsupportedAlgorithm(name) => {
+                assert_eq!(name, "EdDSA", "error must name the rejected algorithm");
+            }
+            other => panic!("expected UnsupportedAlgorithm, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_unsupported_algorithm_maps_to_auth_error() {
+        // The public API surface (`AuthError`) must expose the dedicated
+        // variant, not the generic `ValidationFailed` fallback.
+        let auth_err: crate::errors::AuthError =
+            ClaimsError::UnsupportedAlgorithm("EdDSA".to_owned()).into();
+        match auth_err {
+            crate::errors::AuthError::UnsupportedAlgorithm(name) => assert_eq!(name, "EdDSA"),
+            other => panic!("expected AuthError::UnsupportedAlgorithm, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_decode_rejects_disallowed_algorithm() {
+        // A token with `alg: "EdDSA"` must be rejected with
+        // `ClaimsError::UnsupportedAlgorithm` before the underlying
+        // `crypto::verify` is ever invoked. The kid matches a real RSA key in
+        // the served JWKS so the early failure isolates the algorithm check
+        // from unrelated lookup failures.
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/jwks");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(signed_jwks_json());
+        });
+
+        let jwks_url = server.url("/jwks");
+        let provider = test_provider_with_http(&jwks_url);
+
+        // Build a token claiming EdDSA but with a real RSA-keyed `kid` and a
+        // syntactically valid (though semantically meaningless) signature
+        // segment. The signature contents never matter — the allow-list must
+        // fail first.
+        let header_json = r#"{"alg":"EdDSA","kid":"sign-key-1","typ":"JWT"}"#;
+        let header_b64 = URL_SAFE_NO_PAD.encode(header_json.as_bytes());
+        let payload_b64 = URL_SAFE_NO_PAD.encode(b"{\"sub\":\"u\"}");
+        let signature_b64 = URL_SAFE_NO_PAD.encode([0u8; 64]);
+        let token = format!("{header_b64}.{payload_b64}.{signature_b64}");
+
+        let err = provider
+            .validate_and_decode(&token)
+            .await
+            .expect_err("EdDSA token must be rejected by the FIPS allow-list");
+
+        match err {
+            ClaimsError::UnsupportedAlgorithm(name) => assert_eq!(name, "EdDSA"),
+            other => panic!("expected UnsupportedAlgorithm, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_validate_and_decode_rejects_alg_none() {
+        // The `none` algorithm has been removed from `jsonwebtoken::Algorithm`
+        // entirely, so `decode_header` rejects it before the allow-list ever
+        // sees it. Either layer is acceptable — what matters is that the
+        // token never reaches signature verification.
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(GET).path("/jwks");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(signed_jwks_json());
+        });
+
+        let jwks_url = server.url("/jwks");
+        let provider = test_provider_with_http(&jwks_url);
+
+        let header_json = r#"{"alg":"none","kid":"sign-key-1","typ":"JWT"}"#;
+        let header_b64 = URL_SAFE_NO_PAD.encode(header_json.as_bytes());
+        let payload_b64 = URL_SAFE_NO_PAD.encode(b"{\"sub\":\"u\"}");
+        let token = format!("{header_b64}.{payload_b64}.");
+
+        let err = provider
+            .validate_and_decode(&token)
+            .await
+            .expect_err("alg=none token must be rejected");
+
+        assert!(
+            matches!(
+                err,
+                ClaimsError::DecodeFailed(_) | ClaimsError::UnsupportedAlgorithm(_)
+            ),
+            "expected DecodeFailed or UnsupportedAlgorithm, got: {err:?}"
+        );
     }
 
     #[test]

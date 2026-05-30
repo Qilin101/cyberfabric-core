@@ -47,6 +47,9 @@ pub enum ClaimsError {
 
     #[error("Unknown key ID: {0}")]
     UnknownKeyId(String),
+
+    #[error("Unsupported JWT algorithm: {0}")]
+    UnsupportedAlgorithm(String),
 }
 
 // Conversion from ClaimsError to AuthError for backward compatibility.
@@ -72,6 +75,9 @@ impl From<ClaimsError> for crate::errors::AuthError {
                 crate::errors::AuthError::AudienceMismatch { expected, actual }
             }
             ClaimsError::JwksFetchFailed(msg) => crate::errors::AuthError::JwksFetchFailed(msg),
+            ClaimsError::UnsupportedAlgorithm(alg) => {
+                crate::errors::AuthError::UnsupportedAlgorithm(alg)
+            }
             other => crate::errors::AuthError::ValidationFailed(other.to_string()),
         }
     }

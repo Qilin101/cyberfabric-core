@@ -29,6 +29,9 @@ pub enum AuthError {
     #[error("Token expired")]
     TokenExpired,
 
+    #[error("Unsupported JWT algorithm: {0}")]
+    UnsupportedAlgorithm(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 }
