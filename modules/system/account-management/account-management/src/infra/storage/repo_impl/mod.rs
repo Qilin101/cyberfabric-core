@@ -192,6 +192,17 @@ impl TenantRepo for TenantRepoImpl {
         reads::count_children(self, scope, parent_id, filter).await
     }
 
+    async fn count_tenants_by_status(
+        &self,
+        scope: &AccessScope,
+    ) -> Result<Vec<(TenantStatus, bool, u64)>, DomainError> {
+        reads::count_tenants_by_status(self, scope).await
+    }
+
+    async fn count_closure_rows(&self, scope: &AccessScope) -> Result<u64, DomainError> {
+        reads::count_closure_rows(self, scope).await
+    }
+
     async fn schedule_deletion(
         &self,
         scope: &AccessScope,

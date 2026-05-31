@@ -50,10 +50,12 @@
 //!   the provisioning-reaper batch on rows stuck in retry.
 //! * [`for_retention_sweep`] — `deprovision_tenant` from the
 //!   hard-delete retention sweep on rows past their retention window.
-//! * [`for_user_cleanup`] — RG membership cleanup on `delete_user`
-//!   after the `IdP` `deprovision_user` succeeds.
 //! * [`for_user_groups_cascade`] — RG cascade-cleanup hook fired
 //!   when a tenant is hard-deleted.
+//!
+//! `delete_user`'s RG membership cleanup used to mint a `for_user_cleanup`
+//! system actor here; VHP-190 moved it to run under the caller's context
+//! (it is a caller-initiated flow), so no system actor is needed for it.
 
 use modkit_security::SecurityContext;
 use uuid::Uuid;
@@ -147,20 +149,6 @@ pub(crate) fn for_retention_sweep(tenant_id: Uuid) -> SecurityContext {
     build_inner(Some(tenant_id))
 }
 
-/// `delete_user` — RG membership cleanup after the `IdP`
-/// `deprovision_user` round trip succeeds. `tenant_id` is the
-/// owning tenant of the user being removed.
-#[must_use]
-pub(crate) fn for_user_cleanup(tenant_id: Uuid) -> SecurityContext {
-    tracing::info!(
-        target: "am.system_actor",
-        site = "user_cleanup",
-        tenant_id = %tenant_id,
-        "am system actor constructed",
-    );
-    build_inner(Some(tenant_id))
-}
-
 /// User-groups cascade-cleanup hook — fired when a tenant is
 /// hard-deleted and AM must walk its user-group memberships in RG.
 /// `tenant_id` is the tenant being deleted.
@@ -205,7 +193,6 @@ mod tests {
             ("bootstrap", for_bootstrap(tenant)),
             ("provisioning_reaper", for_provisioning_reaper(tenant)),
             ("retention_sweep", for_retention_sweep(tenant)),
-            ("user_cleanup", for_user_cleanup(tenant)),
             ("user_groups_cascade", for_user_groups_cascade(tenant)),
         ] {
             assert_eq!(

@@ -25,11 +25,14 @@
 //! * **Cardinality discipline.** No label accepts a free `&str`.
 //!   Numeric labels (`threshold` on `hierarchy_depth_exceedance`) are
 //!   typed primitives; the adapter renders them at emit time.
-//! * **Metric names** keep the dot-separated form
-//!   (`am.dependency_health`, `am.bootstrap_lifecycle`) from
-//!   [`crate::domain::metrics`]. Unit hints are attached on the
-//!   adapter via `.with_unit("ms")`/`.with_unit("s")`, not embedded
-//!   in the metric name.
+//! * **Metric names** are the full, literal Prometheus names
+//!   (`am_dependency_health_total`, `am_bootstrap_lifecycle_total`)
+//!   from [`crate::domain::metrics`], with the OTel→Prometheus suffix
+//!   baked in (counters `_total`; quantity gauges / histograms carry
+//!   the unit word, e.g. `_seconds` / `_milliseconds`). No
+//!   `.with_unit()` hint is set on the adapter, so the rendered name is
+//!   identical regardless of the collector's `add_metric_suffixes`
+//!   setting.
 
 use account_management_sdk::idp::{IdpDeprovisionFailure, IdpProvisionFailure};
 use account_management_sdk::idp_user::IdpUserOperationFailure;

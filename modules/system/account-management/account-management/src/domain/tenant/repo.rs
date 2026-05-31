@@ -367,6 +367,25 @@ pub trait TenantRepo: Send + Sync {
         filter: ChildCountFilter,
     ) -> Result<u64, DomainError>;
 
+    /// Count live tenants grouped by `(status, self_managed)` for the
+    /// `am_tenants` inventory gauge. Visibility is bounded by `scope`
+    /// (the periodic refresher passes `AccessScope::allow_all` for a
+    /// platform-wide count). Returns one entry per
+    /// `(TenantStatus, self_managed)` combination — including
+    /// zero-count combos — so the emitted gauge series stay stable
+    /// tick-to-tick.
+    async fn count_tenants_by_status(
+        &self,
+        scope: &AccessScope,
+    ) -> Result<Vec<(TenantStatus, bool, u64)>, DomainError>;
+
+    /// Count rows in `tenant_closure` (ancestor-descendant edges) for the
+    /// `am_tenant_closure_rows` size gauge. The closure grows
+    /// ~O(tenants × depth); tracking its row count surfaces closure bloat
+    /// or integrity drift early (e.g. orphaned / stale edges that the
+    /// integrity checker hasn't swept yet).
+    async fn count_closure_rows(&self, scope: &AccessScope) -> Result<u64, DomainError>;
+
     /// Flip the tenant from its current SDK-visible state to
     /// `Deleted`, stamp `deleted_at = now` (which also starts the
     /// retention timer — eligibility for hard-delete becomes

@@ -878,7 +878,7 @@ impl<R: TenantRepo> TenantService<R> {
                                 AM_TENANT_RETENTION,
                                 MetricKind::Counter,
                                 &[
-                                    ("job", "saga_compensation"),
+                                    ("retention_job", "saga_compensation"),
                                     ("outcome", "compensate_failed"),
                                 ],
                             );
@@ -924,7 +924,7 @@ impl<R: TenantRepo> TenantService<R> {
                                 AM_TENANT_RETENTION,
                                 MetricKind::Counter,
                                 &[
-                                    ("job", "saga_compensation"),
+                                    ("retention_job", "saga_compensation"),
                                     ("outcome", "compensate_failed"),
                                 ],
                             );
@@ -1276,7 +1276,7 @@ impl<R: TenantRepo> TenantService<R> {
                         AM_TENANT_RETENTION,
                         MetricKind::Counter,
                         &[
-                            ("job", "saga_compensation"),
+                            ("retention_job", "saga_compensation"),
                             ("outcome", "unsupported_required"),
                         ],
                     );
@@ -1303,7 +1303,10 @@ impl<R: TenantRepo> TenantService<R> {
                 emit_metric(
                     AM_TENANT_RETENTION,
                     MetricKind::Counter,
-                    &[("job", "saga_compensation"), ("outcome", "idp_unconfirmed")],
+                    &[
+                        ("retention_job", "saga_compensation"),
+                        ("outcome", "idp_unconfirmed"),
+                    ],
                 );
                 false
             }
@@ -1332,7 +1335,7 @@ impl<R: TenantRepo> TenantService<R> {
                 AM_TENANT_RETENTION,
                 MetricKind::Counter,
                 &[
-                    ("job", "saga_compensation"),
+                    ("retention_job", "saga_compensation"),
                     ("outcome", "compensate_failed"),
                 ],
             );

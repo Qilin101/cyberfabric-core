@@ -280,6 +280,10 @@ impl AccountManagementModule {
                                 "reap_stuck_provisioning tick"
                             );
                         }
+                        // Refresh the live tenant-inventory gauge
+                        // (am_tenants) each reaper tick — cheap
+                        // per-(status, self_managed) COUNTs.
+                        reaper_svc.refresh_tenant_inventory().await;
                     }
                 }
             }

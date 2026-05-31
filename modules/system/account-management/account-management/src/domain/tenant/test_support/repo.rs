@@ -1271,6 +1271,40 @@ impl TenantRepo for FakeTenantRepo {
         Ok(u64::try_from(count).unwrap_or(u64::MAX))
     }
 
+    async fn count_tenants_by_status(
+        &self,
+        _scope: &AccessScope,
+    ) -> Result<Vec<(TenantStatus, bool, u64)>, DomainError> {
+        let state = self.state.lock().expect("lock");
+        let statuses = [
+            TenantStatus::Provisioning,
+            TenantStatus::Active,
+            TenantStatus::Suspended,
+            TenantStatus::Deleted,
+        ];
+        let mut out = Vec::with_capacity(statuses.len() * 2);
+        for status in statuses {
+            for self_managed in [false, true] {
+                let count = state
+                    .tenants
+                    .values()
+                    .filter(|t| t.status == status && t.self_managed == self_managed)
+                    .count();
+                out.push((
+                    status,
+                    self_managed,
+                    u64::try_from(count).unwrap_or(u64::MAX),
+                ));
+            }
+        }
+        Ok(out)
+    }
+
+    async fn count_closure_rows(&self, _scope: &AccessScope) -> Result<u64, DomainError> {
+        let state = self.state.lock().expect("lock");
+        Ok(u64::try_from(state.closure.len()).unwrap_or(u64::MAX))
+    }
+
     async fn schedule_deletion(
         &self,
         _scope: &AccessScope,

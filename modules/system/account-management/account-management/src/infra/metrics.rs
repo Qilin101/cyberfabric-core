@@ -16,13 +16,18 @@
 //!
 //! ## Instrument naming
 //!
-//! Instruments use the dot-separated metric names from
-//! [`crate::domain::metrics`] (e.g. `am.dependency_health`) verbatim,
-//! with `prefix` substituted for the leading `am` segment. Unit hints
-//! are attached via `with_unit("ms")` / `with_unit("s")`; the metric
-//! name itself is unit-free, matching `OTel` semantic-convention style.
-//! Counters carry no `_total` suffix — the downstream
-//! Prometheus exporter appends it.
+//! Instruments use the **full, literal Prometheus names** from
+//! [`crate::domain::metrics`] (e.g. `am_dependency_health_total`), with
+//! `prefix` substituted for the leading `am` segment. The suffix that
+//! the OTel→Prometheus translation would otherwise add is baked into
+//! the instrument name: counters carry `_total`, and gauges /
+//! histograms that measure a quantity carry the unit word
+//! (`_seconds`, `_milliseconds`); count-only gauges carry no suffix.
+//! No `.with_unit()` hint is set. Because the name is already literal
+//! and unit-free at the instrument level, the rendered Prometheus name
+//! is identical whether the downstream collector has
+//! `add_metric_suffixes` on or off (the exporter dedups an existing
+//! `_total` and adds no unit suffix when none is configured).
 
 use std::sync::Arc;
 
@@ -36,7 +41,7 @@ use crate::domain::metrics::{
     AM_HIERARCHY_INTEGRITY_REPAIR_RUNS, AM_HIERARCHY_INTEGRITY_REPAIRED,
     AM_HIERARCHY_INTEGRITY_RUNS, AM_HIERARCHY_INTEGRITY_VIOLATIONS, AM_INTEGRITY_LOCK_EVENTS,
     AM_METADATA_RESOLUTION, AM_RETENTION_INVALID_WINDOW, AM_SERIALIZABLE_RETRY,
-    AM_TENANT_RETENTION, MetricKind, MetricsFacadeBridge,
+    AM_TENANT_CLOSURE_ROWS, AM_TENANT_RETENTION, AM_TENANTS, MetricKind, MetricsFacadeBridge,
 };
 use crate::domain::ports::metrics::{
     BootstrapClassification, BootstrapMetricsPort, BootstrapOutcome, BootstrapPhase,
@@ -68,11 +73,13 @@ pub struct AmMetricsMeter {
     serializable_retry: Counter<u64>,
     tenant_retention: Counter<u64>,
 
-    // Gauges (4)
+    // Gauges (5)
     hierarchy_integrity_last_failure: Gauge<i64>,
     hierarchy_integrity_last_success: Gauge<i64>,
     hierarchy_integrity_repaired: Gauge<i64>,
     hierarchy_integrity_violations: Gauge<i64>,
+    tenants: Gauge<i64>,
+    tenant_closure_rows: Gauge<i64>,
 
     // Histograms (1)
     hierarchy_integrity_duration: Histogram<f64>,
@@ -81,65 +88,69 @@ pub struct AmMetricsMeter {
 impl AmMetricsMeter {
     /// Build every instrument. `prefix` defaults to `"am"` and is the
     /// leading namespace segment of every metric name
-    /// (`{prefix}.dependency_health`, etc.).
+    /// (`{prefix}_dependency_health_total`, etc.). Instrument names are
+    /// the full, literal Prometheus names with the OTel→Prometheus
+    /// suffix baked in (counters `_total`; quantity gauges / histograms
+    /// carry the unit word `_seconds` / `_milliseconds`); no
+    /// `.with_unit()` hint is set.
     #[must_use]
     #[allow(clippy::too_many_lines)]
     pub fn new(meter: &Meter, prefix: &str) -> Self {
         Self {
             // ── Counters ────────────────────────────────────────────
             bootstrap_lifecycle: meter
-                .u64_counter(format!("{prefix}.bootstrap_lifecycle"))
+                .u64_counter(format!("{prefix}_bootstrap_lifecycle_total"))
                 .with_description(
                     "Root-tenant bootstrap saga telemetry by (phase, outcome, classification)",
                 )
                 .build(),
             conversion_lifecycle: meter
-                .u64_counter(format!("{prefix}.conversion_lifecycle"))
+                .u64_counter(format!("{prefix}_conversion_lifecycle_total"))
                 .with_description("Mode-conversion request transitions and outcomes")
                 .build(),
             cross_tenant_denial: meter
-                .u64_counter(format!("{prefix}.cross_tenant_denial"))
+                .u64_counter(format!("{prefix}_cross_tenant_denial_total"))
                 .with_description("Cross-tenant denial counter (security-alert candidate)")
                 .build(),
             dependency_health: meter
-                .u64_counter(format!("{prefix}.dependency_health"))
+                .u64_counter(format!("{prefix}_dependency_health_total"))
                 .with_description(
                     "Outbound dependency-call health (IdP / Resource Group / GTS / AuthZ / \
                      Types Registry / metadata upsert)",
                 )
                 .build(),
             hierarchy_depth_exceedance: meter
-                .u64_counter(format!("{prefix}.hierarchy_depth_exceedance"))
+                .u64_counter(format!("{prefix}_hierarchy_depth_exceedance_total"))
                 .with_description("Hierarchy-depth threshold exceedance (advisory + strict)")
                 .build(),
             hierarchy_integrity_repair_runs: meter
-                .u64_counter(format!("{prefix}.hierarchy_integrity_repair_runs"))
+                .u64_counter(format!("{prefix}_hierarchy_integrity_repair_runs_total"))
                 .with_description("Periodic auto-repair tick outcomes")
                 .build(),
             hierarchy_integrity_runs: meter
-                .u64_counter(format!("{prefix}.hierarchy_integrity_runs"))
+                .u64_counter(format!("{prefix}_hierarchy_integrity_runs_total"))
                 .with_description("Periodic integrity-check job tick outcomes")
                 .build(),
             integrity_lock_events: meter
-                .u64_counter(format!("{prefix}.integrity_lock_events"))
+                .u64_counter(format!("{prefix}_integrity_lock_events_total"))
                 .with_description("Integrity-check lock-lifecycle events (stale-lock sweep)")
                 .build(),
             metadata_resolution: meter
-                .u64_counter(format!("{prefix}.metadata_resolution"))
+                .u64_counter(format!("{prefix}_metadata_resolution_total"))
                 .with_description(
                     "Tenant-metadata resolution operations and inheritance policy outcomes",
                 )
                 .build(),
             retention_invalid_window: meter
-                .u64_counter(format!("{prefix}.retention.invalid_window"))
+                .u64_counter(format!("{prefix}_retention_invalid_window_total"))
                 .with_description("Invalid retention-window configuration encountered")
                 .build(),
             serializable_retry: meter
-                .u64_counter(format!("{prefix}.serializable_retry"))
+                .u64_counter(format!("{prefix}_serializable_retry_total"))
                 .with_description("SERIALIZABLE-isolation retry helper outcomes")
                 .build(),
             tenant_retention: meter
-                .u64_counter(format!("{prefix}.tenant_retention"))
+                .u64_counter(format!("{prefix}_tenant_retention_total"))
                 .with_description(
                     "Provisioning reaper / hard-delete / deprovision background-job telemetry",
                 )
@@ -147,31 +158,38 @@ impl AmMetricsMeter {
 
             // ── Gauges ─────────────────────────────────────────────
             hierarchy_integrity_last_failure: meter
-                .i64_gauge(format!("{prefix}.hierarchy_integrity_last_failure"))
+                .i64_gauge(format!("{prefix}_hierarchy_integrity_last_failure_seconds"))
                 .with_description("Unix-epoch seconds of last failed integrity-check tick")
-                .with_unit("s")
                 .build(),
             hierarchy_integrity_last_success: meter
-                .i64_gauge(format!("{prefix}.hierarchy_integrity_last_success"))
+                .i64_gauge(format!("{prefix}_hierarchy_integrity_last_success_seconds"))
                 .with_description("Unix-epoch seconds of last successful integrity-check tick")
-                .with_unit("s")
                 .build(),
             hierarchy_integrity_repaired: meter
-                .i64_gauge(format!("{prefix}.hierarchy_integrity_repaired"))
+                .i64_gauge(format!("{prefix}_hierarchy_integrity_repaired"))
                 .with_description(
                     "Per-run repair telemetry: one sample per (category, bucket) pair",
                 )
                 .build(),
             hierarchy_integrity_violations: meter
-                .i64_gauge(format!("{prefix}.hierarchy_integrity_violations"))
+                .i64_gauge(format!("{prefix}_hierarchy_integrity_violations"))
                 .with_description("Hierarchy-integrity violation count per category")
+                .build(),
+            tenants: meter
+                .i64_gauge(format!("{prefix}_tenants"))
+                .with_description("Live tenant inventory by status and self_managed")
+                .build(),
+            tenant_closure_rows: meter
+                .i64_gauge(format!("{prefix}_tenant_closure_rows"))
+                .with_description("Live tenant_closure table size (ancestor-descendant edges)")
                 .build(),
 
             // ── Histograms ─────────────────────────────────────────
             hierarchy_integrity_duration: meter
-                .f64_histogram(format!("{prefix}.hierarchy_integrity_duration"))
+                .f64_histogram(format!(
+                    "{prefix}_hierarchy_integrity_duration_milliseconds"
+                ))
                 .with_description("Periodic integrity-check tick wall-clock duration")
-                .with_unit("ms")
                 .build(),
         }
     }
@@ -288,7 +306,7 @@ impl TenantMetricsPort for AmMetricsMeter {
         self.tenant_retention.add(
             1,
             &[
-                KeyValue::new("job", job.as_str()),
+                KeyValue::new("retention_job", job.as_str()),
                 KeyValue::new("outcome", outcome.as_str()),
             ],
         );
@@ -394,6 +412,12 @@ impl MetricsFacadeBridge for AmMetricsMeter {
             AM_HIERARCHY_INTEGRITY_VIOLATIONS => {
                 self.hierarchy_integrity_violations.record(value, &kvs);
             }
+            AM_TENANTS => {
+                self.tenants.record(value, &kvs);
+            }
+            AM_TENANT_CLOSURE_ROWS => {
+                self.tenant_closure_rows.record(value, &kvs);
+            }
             _ => {
                 debug_assert!(
                     false,
@@ -420,7 +444,7 @@ impl MetricsFacadeBridge for AmMetricsMeter {
 }
 
 /// Default instrument-name prefix. The leading namespace segment of
-/// every `am.*` metric family.
+/// every `am_*` metric family.
 pub const DEFAULT_PREFIX: &str = "am";
 
 /// Convenience constructor used at module init: builds an

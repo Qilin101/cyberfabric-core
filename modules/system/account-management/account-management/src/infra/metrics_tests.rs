@@ -145,15 +145,25 @@ fn dependency_health_counter_with_and_without_outcome() {
     provider.force_flush().unwrap();
 
     assert_eq!(
-        extract_u64_counter_sum(&exporter, "test_am.dependency_health"),
+        extract_u64_counter_sum(&exporter, "test_am_dependency_health_total"),
         3,
     );
     assert_eq!(
-        count_data_points_with_label(&exporter, "test_am.dependency_health", "outcome", "success",),
+        count_data_points_with_label(
+            &exporter,
+            "test_am_dependency_health_total",
+            "outcome",
+            "success",
+        ),
         1,
     );
     assert_eq!(
-        count_data_points_with_label(&exporter, "test_am.dependency_health", "outcome", "timeout",),
+        count_data_points_with_label(
+            &exporter,
+            "test_am_dependency_health_total",
+            "outcome",
+            "timeout",
+        ),
         1,
     );
 }
@@ -181,13 +191,13 @@ fn bootstrap_lifecycle_counter_routes_classification_label() {
     provider.force_flush().unwrap();
 
     assert_eq!(
-        extract_u64_counter_sum(&exporter, "test_am.bootstrap_lifecycle"),
+        extract_u64_counter_sum(&exporter, "test_am_bootstrap_lifecycle_total"),
         3,
     );
     assert_eq!(
         count_data_points_with_label(
             &exporter,
-            "test_am.bootstrap_lifecycle",
+            "test_am_bootstrap_lifecycle_total",
             "classification",
             "ambiguous",
         ),
@@ -196,7 +206,7 @@ fn bootstrap_lifecycle_counter_routes_classification_label() {
     assert_eq!(
         count_data_points_with_label(
             &exporter,
-            "test_am.bootstrap_lifecycle",
+            "test_am_bootstrap_lifecycle_total",
             "classification",
             "idp_timeout",
         ),
@@ -225,13 +235,13 @@ fn tenant_retention_counter() {
     provider.force_flush().unwrap();
 
     assert_eq!(
-        extract_u64_counter_sum(&exporter, "test_am.tenant_retention"),
+        extract_u64_counter_sum(&exporter, "test_am_tenant_retention_total"),
         3,
     );
     assert_eq!(
         count_data_points_with_label(
             &exporter,
-            "test_am.tenant_retention",
+            "test_am_tenant_retention_total",
             "outcome",
             "retryable",
         ),
@@ -253,13 +263,13 @@ fn hierarchy_depth_exceedance_renders_threshold() {
     provider.force_flush().unwrap();
 
     assert_eq!(
-        extract_u64_counter_sum(&exporter, "test_am.hierarchy_depth_exceedance"),
+        extract_u64_counter_sum(&exporter, "test_am_hierarchy_depth_exceedance_total"),
         1,
     );
     assert_eq!(
         count_data_points_with_label(
             &exporter,
-            "test_am.hierarchy_depth_exceedance",
+            "test_am_hierarchy_depth_exceedance_total",
             "threshold",
             "16",
         ),
@@ -279,11 +289,11 @@ fn integrity_run_counters_separate_by_family() {
     provider.force_flush().unwrap();
 
     assert_eq!(
-        extract_u64_counter_sum(&exporter, "test_am.hierarchy_integrity_runs"),
+        extract_u64_counter_sum(&exporter, "test_am_hierarchy_integrity_runs_total"),
         2,
     );
     assert_eq!(
-        extract_u64_counter_sum(&exporter, "test_am.hierarchy_integrity_repair_runs"),
+        extract_u64_counter_sum(&exporter, "test_am_hierarchy_integrity_repair_runs_total"),
         1,
     );
 }
@@ -298,7 +308,7 @@ fn integrity_gauge_records_value() {
     provider.force_flush().unwrap();
 
     assert_eq!(
-        extract_i64_gauge_last(&exporter, "test_am.hierarchy_integrity_violations"),
+        extract_i64_gauge_last(&exporter, "test_am_hierarchy_integrity_violations"),
         Some(7),
     );
 }
@@ -314,7 +324,10 @@ fn integrity_duration_histogram_records_observation() {
     provider.force_flush().unwrap();
 
     assert_eq!(
-        extract_f64_histogram_count(&exporter, "test_am.hierarchy_integrity_duration"),
+        extract_f64_histogram_count(
+            &exporter,
+            "test_am_hierarchy_integrity_duration_milliseconds"
+        ),
         2,
     );
 }
@@ -344,13 +357,13 @@ fn facade_bridge_routes_counter_emission() {
     provider.force_flush().unwrap();
 
     assert_eq!(
-        extract_u64_counter_sum(&exporter, "test_am.bootstrap_lifecycle"),
+        extract_u64_counter_sum(&exporter, "test_am_bootstrap_lifecycle_total"),
         2,
     );
     assert_eq!(
         count_data_points_with_label(
             &exporter,
-            "test_am.bootstrap_lifecycle",
+            "test_am_bootstrap_lifecycle_total",
             "outcome",
             "success",
         ),
@@ -373,7 +386,7 @@ fn facade_bridge_routes_gauge_emission() {
     provider.force_flush().unwrap();
 
     assert_eq!(
-        extract_i64_gauge_last(&exporter, "test_am.hierarchy_integrity_violations"),
+        extract_i64_gauge_last(&exporter, "test_am_hierarchy_integrity_violations"),
         Some(42),
     );
 }
@@ -393,7 +406,10 @@ fn facade_bridge_routes_histogram_emission() {
     provider.force_flush().unwrap();
 
     assert_eq!(
-        extract_f64_histogram_count(&exporter, "test_am.hierarchy_integrity_duration"),
+        extract_f64_histogram_count(
+            &exporter,
+            "test_am_hierarchy_integrity_duration_milliseconds"
+        ),
         1,
     );
 }

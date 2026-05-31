@@ -64,7 +64,6 @@ use uuid::Uuid;
 use crate::domain::error::DomainError;
 use crate::domain::idp::UserOperationFailureExt;
 use crate::domain::metrics::{AM_DEPENDENCY_HEALTH, MetricKind, emit_metric};
-use crate::domain::system_actor::for_user_cleanup;
 use crate::domain::tenant::TenantContext;
 use crate::domain::tenant::model::TenantStatus;
 use crate::domain::tenant::repo::TenantRepo;
@@ -566,7 +565,7 @@ impl UserService {
             // retry re-enters the path; IdP returns `Ok(())` idempotently,
             // cleanup retries.
             Ok(()) => {
-                self.cleanup_user_group_memberships(tenant_id, user_id)
+                self.cleanup_user_group_memberships(ctx, tenant_id, user_id)
                     .await?;
                 tracing::info!(
                     target: "am.events",
@@ -915,10 +914,11 @@ impl UserService {
     /// pointing at it.
     ///
     /// Short-circuits on `rg_client = None` (test fixtures that don't
-    /// model membership scenarios). System-actor context is built via
-    /// [`crate::domain::system_actor::for_user_cleanup`] so the call
-    /// goes through cross-module authz with the stable AM subject
-    /// UUID, mirroring the user-group cascade hook.
+    /// model membership scenarios). Runs under the CALLER's `ctx`
+    /// (VHP-190): the caller that deleted the user authorizes clearing
+    /// its RG memberships, which keeps this read off the elevated
+    /// system-actor PDP path (background flows with no caller still use
+    /// the `system_actor` factories).
     ///
     /// Two-step, tenant-scoped by construction:
     ///
@@ -956,15 +956,14 @@ impl UserService {
     ///   loud rather than silently swallowing.
     async fn cleanup_user_group_memberships(
         &self,
+        ctx: &SecurityContext,
         tenant_id: Uuid,
         user_id: Uuid,
     ) -> Result<(), DomainError> {
         let Some(rg) = self.rg_client.as_ref() else {
             return Ok(());
         };
-        let sys_ctx = for_user_cleanup(tenant_id);
-
-        let body = cleanup_inner(rg.as_ref(), &sys_ctx, tenant_id, user_id);
+        let body = cleanup_inner(rg.as_ref(), ctx, tenant_id, user_id);
         match tokio::time::timeout(RG_CLEANUP_BUDGET, body).await {
             Ok(res) => res,
             Err(_elapsed) => {

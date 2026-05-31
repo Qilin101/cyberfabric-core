@@ -392,6 +392,55 @@ pub(super) async fn count_children(
         .map_err(map_scope_err)
 }
 
+pub(super) async fn count_tenants_by_status(
+    repo: &TenantRepoImpl,
+    scope: &AccessScope,
+) -> Result<Vec<(TenantStatus, bool, u64)>, DomainError> {
+    let connection = repo.db.conn()?;
+    // One cheap indexed COUNT per (status, self_managed) combo. All
+    // eight combos are emitted — including zero-count ones — so the
+    // `am_tenants` gauge keeps a stable series set across ticks.
+    let statuses = [
+        TenantStatus::Provisioning,
+        TenantStatus::Active,
+        TenantStatus::Suspended,
+        TenantStatus::Deleted,
+    ];
+    let mut out = Vec::with_capacity(statuses.len() * 2);
+    for status in statuses {
+        for self_managed in [false, true] {
+            let count = tenants::Entity::find()
+                .secure()
+                .scope_with(scope)
+                .filter(
+                    Condition::all()
+                        .add(tenants::Column::Status.eq(status.as_smallint()))
+                        .add(tenants::Column::SelfManaged.eq(self_managed)),
+                )
+                .count(&connection)
+                .await
+                .map_err(map_scope_err)?;
+            out.push((status, self_managed, count));
+        }
+    }
+    Ok(out)
+}
+
+pub(super) async fn count_closure_rows(
+    repo: &TenantRepoImpl,
+    scope: &AccessScope,
+) -> Result<u64, DomainError> {
+    let connection = repo.db.conn()?;
+    // `tenant_closure` carries no scoping dimensions (`#[secure(no_*)]`), so
+    // `.scope_with` adds no predicate — this is a full table-size count.
+    tenant_closure::Entity::find()
+        .secure()
+        .scope_with(scope)
+        .count(&connection)
+        .await
+        .map_err(map_scope_err)
+}
+
 pub(super) async fn is_descendant(
     repo: &TenantRepoImpl,
     scope: &AccessScope,

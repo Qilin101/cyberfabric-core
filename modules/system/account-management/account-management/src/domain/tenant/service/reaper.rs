@@ -39,7 +39,10 @@ use account_management_sdk::{
     IdpDeprovisionFailure, IdpDeprovisionTenantRequest, IdpTenantContext,
 };
 
-use crate::domain::metrics::{AM_TENANT_RETENTION, MetricKind, emit_metric};
+use crate::domain::metrics::{
+    AM_TENANT_CLOSURE_ROWS, AM_TENANT_RETENTION, AM_TENANTS, MetricKind, emit_gauge_value,
+    emit_metric,
+};
 use crate::domain::system_actor::for_provisioning_reaper;
 use crate::domain::tenant::repo::TenantRepo;
 use crate::domain::tenant::retention::ReaperResult;
@@ -70,6 +73,63 @@ enum ReaperOutcome {
 }
 
 impl<R: TenantRepo> TenantService<R> {
+    /// Refresh the `am_tenants` inventory gauge with a platform-wide
+    /// count per `(status, self_managed)`. Driven off the reaper tick
+    /// (a periodic loop that always runs) so the gauge stays current
+    /// without a dedicated scheduler. Best-effort: a count failure is
+    /// logged and the previous gauge sample is left in place rather
+    /// than failing the tick.
+    pub async fn refresh_tenant_inventory(&self) {
+        let scope = AccessScope::allow_all();
+        self.refresh_tenant_status_gauge(&scope).await;
+        self.refresh_closure_gauge(&scope).await;
+    }
+
+    /// Emit `am_tenants{status,self_managed}` from a platform-wide count.
+    async fn refresh_tenant_status_gauge(&self, scope: &AccessScope) {
+        match self.repo.count_tenants_by_status(scope).await {
+            Ok(rows) => {
+                for (status, self_managed, count) in rows {
+                    emit_gauge_value(
+                        AM_TENANTS,
+                        i64::try_from(count).unwrap_or(i64::MAX),
+                        &[
+                            ("status", status.as_str()),
+                            ("self_managed", if self_managed { "true" } else { "false" }),
+                        ],
+                    );
+                }
+            }
+            Err(err) => {
+                warn!(
+                    target: "am.lifecycle",
+                    error = %err,
+                    "refresh_tenant_inventory: count query failed; am_tenants gauge not refreshed this tick"
+                );
+            }
+        }
+    }
+
+    /// Emit `am_tenant_closure_rows` (the `tenant_closure` table size).
+    async fn refresh_closure_gauge(&self, scope: &AccessScope) {
+        match self.repo.count_closure_rows(scope).await {
+            Ok(rows) => {
+                emit_gauge_value(
+                    AM_TENANT_CLOSURE_ROWS,
+                    i64::try_from(rows).unwrap_or(i64::MAX),
+                    &[],
+                );
+            }
+            Err(err) => {
+                warn!(
+                    target: "am.lifecycle",
+                    error = %err,
+                    "refresh_tenant_inventory: closure-count query failed; am_tenant_closure_rows gauge not refreshed this tick"
+                );
+            }
+        }
+    }
+
     /// Implements FEATURE `Provisioning Reaper`.
     ///
     /// Per-row pipeline: classify the `IdP` deprovision response, then
@@ -134,7 +194,10 @@ impl<R: TenantRepo> TenantService<R> {
                 emit_metric(
                     AM_TENANT_RETENTION,
                     MetricKind::Counter,
-                    &[("job", "provisioning_reaper"), ("outcome", "scan_failed")],
+                    &[
+                        ("retention_job", "provisioning_reaper"),
+                        ("outcome", "scan_failed"),
+                    ],
                 );
                 return ReaperResult::default();
             }
@@ -281,7 +344,7 @@ impl<R: TenantRepo> TenantService<R> {
                     AM_TENANT_RETENTION,
                     MetricKind::Counter,
                     &[
-                        ("job", "provisioning_reaper"),
+                        ("retention_job", "provisioning_reaper"),
                         ("outcome", "context_load_failed"),
                     ],
                 );
@@ -353,7 +416,10 @@ impl<R: TenantRepo> TenantService<R> {
                 emit_metric(
                     AM_TENANT_RETENTION,
                     MetricKind::Counter,
-                    &[("job", "provisioning_reaper"), ("outcome", "retryable")],
+                    &[
+                        ("retention_job", "provisioning_reaper"),
+                        ("outcome", "retryable"),
+                    ],
                 );
                 ReaperOutcome::Defer
             }
@@ -396,7 +462,10 @@ impl<R: TenantRepo> TenantService<R> {
                 emit_metric(
                     AM_TENANT_RETENTION,
                     MetricKind::Counter,
-                    &[("job", "provisioning_reaper"), ("outcome", "unknown")],
+                    &[
+                        ("retention_job", "provisioning_reaper"),
+                        ("outcome", "unknown"),
+                    ],
                 );
                 ReaperOutcome::Defer
             }
@@ -405,7 +474,7 @@ impl<R: TenantRepo> TenantService<R> {
 
     /// Physically remove the `Provisioning` row via
     /// `TenantRepo::compensate_provisioning` and emit a structured
-    /// `am.events` log line plus an `am_tenant_retention` metric
+    /// `am.events` log line plus an `am_tenant_retention_total` metric
     /// sample for a row whose `IdP`-side cleanup is classified as
     /// success-equivalent. The `actor=system` audit record required
     /// by FEATURE/PRD/DESIGN is **deferred to a follow-up** until
@@ -461,7 +530,7 @@ impl<R: TenantRepo> TenantService<R> {
                 AM_TENANT_RETENTION,
                 MetricKind::Counter,
                 &[
-                    ("job", "provisioning_reaper"),
+                    ("retention_job", "provisioning_reaper"),
                     ("outcome", "compensate_failed"),
                 ],
             );
@@ -480,7 +549,10 @@ impl<R: TenantRepo> TenantService<R> {
         emit_metric(
             AM_TENANT_RETENTION,
             MetricKind::Counter,
-            &[("job", "provisioning_reaper"), ("outcome", outcome_label)],
+            &[
+                ("retention_job", "provisioning_reaper"),
+                ("outcome", outcome_label),
+            ],
         );
         // TODO(events): emit AM event when platform event-bus lands.
         tracing::info!(
@@ -536,7 +608,10 @@ impl<R: TenantRepo> TenantService<R> {
                 emit_metric(
                     AM_TENANT_RETENTION,
                     MetricKind::Counter,
-                    &[("job", "provisioning_reaper"), ("outcome", "terminal")],
+                    &[
+                        ("retention_job", "provisioning_reaper"),
+                        ("outcome", "terminal"),
+                    ],
                 );
             }
             Ok(false) => {
@@ -554,7 +629,7 @@ impl<R: TenantRepo> TenantService<R> {
                     AM_TENANT_RETENTION,
                     MetricKind::Counter,
                     &[
-                        ("job", "provisioning_reaper"),
+                        ("retention_job", "provisioning_reaper"),
                         ("outcome", "terminal_lost_claim"),
                     ],
                 );
@@ -571,7 +646,7 @@ impl<R: TenantRepo> TenantService<R> {
                     AM_TENANT_RETENTION,
                     MetricKind::Counter,
                     &[
-                        ("job", "provisioning_reaper"),
+                        ("retention_job", "provisioning_reaper"),
                         ("outcome", "terminal_mark_failed"),
                     ],
                 );
@@ -609,7 +684,7 @@ impl<R: TenantRepo> TenantService<R> {
                 AM_TENANT_RETENTION,
                 MetricKind::Counter,
                 &[
-                    ("job", "provisioning_reaper"),
+                    ("retention_job", "provisioning_reaper"),
                     ("outcome", "claim_clear_failed"),
                 ],
             );

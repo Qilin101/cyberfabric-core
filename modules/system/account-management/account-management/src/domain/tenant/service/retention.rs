@@ -73,7 +73,7 @@ impl<R: TenantRepo> TenantService<R> {
                 emit_metric(
                     AM_TENANT_RETENTION,
                     MetricKind::Counter,
-                    &[("job", "hard_delete"), ("outcome", "scan_failed")],
+                    &[("retention_job", "hard_delete"), ("outcome", "scan_failed")],
                 );
                 return HardDeleteResult::default();
             }
@@ -173,7 +173,7 @@ impl<R: TenantRepo> TenantService<R> {
                     AM_TENANT_RETENTION,
                     MetricKind::Counter,
                     &[
-                        ("job", "hard_delete"),
+                        ("retention_job", "hard_delete"),
                         ("outcome", outcome.as_metric_label()),
                     ],
                 );
@@ -228,7 +228,7 @@ impl<R: TenantRepo> TenantService<R> {
                             emit_metric(
                                 AM_TENANT_RETENTION,
                                 MetricKind::Counter,
-                                &[("job", "hard_delete"), ("outcome", "park_failed")],
+                                &[("retention_job", "hard_delete"), ("outcome", "park_failed")],
                             );
                         }
                     }
@@ -271,7 +271,10 @@ impl<R: TenantRepo> TenantService<R> {
                     emit_metric(
                         AM_TENANT_RETENTION,
                         MetricKind::Counter,
-                        &[("job", "hard_delete"), ("outcome", "claim_clear_failed")],
+                        &[
+                            ("retention_job", "hard_delete"),
+                            ("outcome", "claim_clear_failed"),
+                        ],
                     );
                 }
                 result.tally(&outcome);
