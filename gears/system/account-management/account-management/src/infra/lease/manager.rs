@@ -90,7 +90,7 @@ impl LeaseManager {
                                 // Free slot — INSERT.
                                 //
                                 // `locked_until` is written worker-clock here
-                                // (see module docs); the steal-path filter is
+                                // (see gear docs); the steal-path filter is
                                 // DB-clock, so drift can only shorten our own
                                 // lease, never extend it past the DB's view.
                                 let am = am_leases::ActiveModel {
