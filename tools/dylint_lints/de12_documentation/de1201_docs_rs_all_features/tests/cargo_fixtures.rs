@@ -108,10 +108,7 @@ fn assert_success(name: &str, output: &Output) {
 
     let toolchain = std::env::var("RUSTUP_TOOLCHAIN").unwrap_or_else(|_| "<unset>".into());
     let has_dylint_link = std::env::var_os("PATH")
-        .map(|path| {
-            std::env::split_paths(&path)
-                .any(|dir| dir.join("dylint-link").exists())
-        })
+        .map(|path| std::env::split_paths(&path).any(|dir| dir.join("dylint-link").exists()))
         .unwrap_or(false);
 
     panic!(
