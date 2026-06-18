@@ -233,7 +233,7 @@ def wait_for_health(
                 _print_log_file(output_log, "server stdout")
                 _print_log_file(error_log, "server stderr")
                 print("Fix the error above, rebuild with:")
-                print("  make build")
+                print("  make cargo-build")
                 print("Then re-run: make e2e-local")
                 sys.exit(1)
 
@@ -358,11 +358,11 @@ def cmd_e2e(args):
         server_process = None
         print("Starting cf-gears-server for local E2E...")
 
-        # Build all required gears and binaries using project build orchestration
-        step("Building release artifacts for local E2E")
-        run_cmd(["make", "build"])
+        # Build only the release binary required for local execution.
+        step("Building release binary for local E2E")
+        run_cmd(["make", "cargo-build"])
 
-        # Use the release binary produced by build
+        # Use the release binary produced by cargo-build
         release_bin = str(find_binary(
             Path(PROJECT_ROOT) / "target", "release", "cf-gears-example-server"
         ))
@@ -370,7 +370,7 @@ def cmd_e2e(args):
         if not os.path.isfile(release_bin):
             print(f"\nERROR: Release binary not found at: {release_bin}")
             print("Build it first with:")
-            print("  make build")
+            print("  make cargo-build")
             sys.exit(1)
 
         # Create logs directory if it doesn't exist
@@ -441,7 +441,7 @@ def cmd_e2e(args):
         env["E2E_DOCKER_MODE"] = "1"
         env.setdefault("E2E_MOCK_UPSTREAM_URL", "http://mock:8080")
 
-    pytest_cmd = [PYTHON, "-m", "pytest", "testing/e2e", "-vv"]
+    pytest_cmd = [PYTHON, "-m", "pytest", "-vv"]
     if args.smoke:
         pytest_cmd.extend(["-m", "smoke"])
     if args.pytest_args:
@@ -450,7 +450,13 @@ def cmd_e2e(args):
         extra_args = args.pytest_args
         if extra_args and extra_args[0] == "--":
             extra_args = extra_args[1:]
-        pytest_cmd.extend(extra_args)
+        if extra_args and not extra_args[0].startswith("-"):
+            pytest_cmd.extend(extra_args)
+        else:
+            pytest_cmd.append("testing/e2e")
+            pytest_cmd.extend(extra_args)
+    else:
+        pytest_cmd.append("testing/e2e")
 
     result = run_cmd_allow_fail(pytest_cmd, env=env)
     exit_code = result.returncode
