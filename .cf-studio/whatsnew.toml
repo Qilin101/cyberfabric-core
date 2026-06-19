@@ -1,3 +1,11 @@
+[whatsnew."v1.5.8"]
+summary = "v1.5.8"
+details = "## What's Changed\r\n* test: add coverage for gitignore updates and agent generation scenarios by @ainetx in https://github.com/constructorfabric/studio/pull/51\r\n\r\n\r\n**Full Changelog**: https://github.com/constructorfabric/studio/compare/v1.5.7...v1.5.8"
+
+[whatsnew."v1.5.7"]
+summary = "v1.5.7"
+details = "## What's Changed\r\n* Refactor kit model loading and enhance workflow handling by @ainetx in https://github.com/constructorfabric/studio/pull/50\r\n\r\n\r\n**Full Changelog**: https://github.com/constructorfabric/studio/compare/v1.5.6...v1.5.7"
+
 [whatsnew."v1.5.6"]
 summary = "v1.5.6"
 details = "## What's Changed\r\n* Refactor gitignore patterns for generated agent resources by @ainetx in https://github.com/constructorfabric/studio/pull/49\r\n\r\n\r\n**Full Changelog**: https://github.com/constructorfabric/studio/compare/v1.5.5...v1.5.6"
